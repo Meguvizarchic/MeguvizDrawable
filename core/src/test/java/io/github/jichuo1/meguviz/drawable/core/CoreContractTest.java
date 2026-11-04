@@ -18,6 +18,7 @@ public final class CoreContractTest {
         checks += BindingContractTest.run();
         checks += ProviderExtensionContractTest.run();
         checks += FlightCacheContractTest.run();
+        checks += AsyncPreparationContractTest.run();
         System.out.println("CoreContractTest: " + checks + " checks passed");
     }
 

@@ -4,10 +4,12 @@ import io.github.jichuo1.meguviz.drawable.cache.FlightCache;
 import io.github.jichuo1.meguviz.drawable.cache.FlightCache.EvictionReason;
 import io.github.jichuo1.meguviz.drawable.cache.FlightCache.Status;
 import io.github.jichuo1.meguviz.drawable.cache.FlightCache.Ticket;
+import java.lang.reflect.Field;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -28,6 +30,8 @@ final class FlightCacheContractTest {
         staleGenerationIsDroppedButCached();
         failuresAreSharedAndNotCached();
         flightLimitAndAbandonedWork();
+        rejectionPathLeavesNothingToCancel();
+        droppedFlightWithoutAssignedTaskStillMakesRoom();
         evictionAndWeight();
         computeNowContracts();
         closeContracts();
@@ -247,6 +251,58 @@ final class FlightCacheContractTest {
         env.owner.drain();
         check(env.produced.get() == 2 && c.events.equals(listOf("ready:v-c")) && cache.peek("a") == null, "the abandoned key was never produced");
         check(cache.stats().abandonedDropped >= 1 && cache.stats().flights == 0, "and the bookkeeping is clean");
+    }
+
+    /**
+     * The rejection path registers no subscriber: the ticket has nothing to cancel and the refused
+     * subscriber is never called. Pins the observable side of the lazily created subscriber record.
+     */
+    private static void rejectionPathLeavesNothingToCancel() {
+        Env env = new Env();
+        FlightCache<String, String> cache = env.builder().maxFlights(1).build();
+        cache.request("taken", env.producer(), new Probe("taken"));
+        Probe refused = new Probe("refused");
+        Ticket<String> rejected = cache.request("other", env.producer(), refused);
+        check(rejected.status() == Status.REJECTED_CAPACITY && rejected.value() == null,
+                "past the flight limit the request is rejected");
+        check(!rejected.cancel(), "a rejection registered no subscriber, so there is nothing to cancel");
+        check(refused.events.isEmpty() && cache.stats().cancelledSubscribers == 0
+                && cache.stats().rejectedCapacity == 1 && cache.stats().flights == 1,
+                "the refused subscriber is never called and no cancellation is counted: " + cache.stats());
+        env.workers.runAll();
+        env.owner.drain();
+        check(refused.events.isEmpty() && env.produced.get() == 1 && cache.peek("taken") != null,
+                "the occupying flight is untouched and still produces once");
+    }
+
+    /**
+     * A queued flight whose task is not yet assigned exists only in the nanoseconds between the map
+     * insertion and the task assignment, so the window is reached directly. Dropping such a flight
+     * must still make room for a new request (it did before the lazy unqueue refactor) instead of
+     * rejecting it; the unassigned task is simply not handed to any pool for removal.
+     */
+    private static void droppedFlightWithoutAssignedTaskStillMakesRoom() throws Exception {
+        Env env = new Env();
+        FlightCache<String, String> cache = env.builder().maxFlights(1).build();
+        Ticket<String> taken = cache.request("taken", env.producer(), new Probe("taken"));
+        check(taken.cancel(), "cancelling leaves the flight queued and subscriber-less");
+        Field flights = FlightCache.class.getDeclaredField("flights");
+        flights.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, ?> map = (Map<String, ?>) flights.get(cache);
+        Object flight = map.get("taken");
+        Field task = flight.getClass().getDeclaredField("task");
+        task.setAccessible(true);
+        task.set(flight, null);
+        Probe next = new Probe("next");
+        check(cache.request("next", env.producer(), next).status() == Status.STARTED,
+                "a dropped flight whose task was never assigned still makes room");
+        check(cache.stats().abandonedDropped == 1 && cache.stats().rejectedCapacity == 0
+                && cache.stats().flights == 1, "the drop is counted and nothing is rejected: " + cache.stats());
+        env.workers.runAll();
+        env.owner.drain();
+        check(next.events.equals(listOf("ready:v-next")) && env.produced.get() == 1,
+                "the new flight runs for its subscriber and the superseded task does nothing");
     }
 
     private static void evictionAndWeight() {

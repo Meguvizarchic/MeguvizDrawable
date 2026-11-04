@@ -125,3 +125,48 @@ dev.3 core JAR SHA-256 `51b17b45e0397b5b322b1382bb73e42bb7e7a91199e538eb79e31031
 - 已签名的 Central 上传包（三个桥）不受影响：用当前代码重新构建这三个模块，15 个载荷文件与包中的逐字节一致，`--check-unpublished` 仍通过。
 - 评审中发现并修复：执行器拒绝任务时已加入的订阅者没有回调；被通知停止的运行中飞行仍可被新请求加入；`Flight.task` 的跨线程可见性。已知并记录的限制：`abandonRunning` 下被替换的运行中飞行可短暂超出飞行上限。
 - 未验证：真机与硬件 Canvas 路径；BIL 实际替换后的帧耗时（属 BIL 侧测量）。
+
+## 首轮性能清理与异步准备示例（未提交工作树），2026-11-04
+
+未提交工作树改动，公开 API 不变，`docs/abi/1.1.0/` 不需要重新生成（无签名增删）。协议、夹具与完整
+数据见 [PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md)；分配基准的仓库外一次性夹具已固化为
+`benchmark/FlightCacheAllocationProbe.java` + `benchmark/run-flightcache-probe.ps1`。
+
+- 改动（core/android，无生产 API 变化）：`FlightCache.request` 的命中与拒绝路径不再预先创建订阅者
+  记录与 `unqueue` 列表（加入路径仍创建订阅者记录——它登记到飞行上；`unqueue` 仅在启动飞行或为腾位
+  丢弃被放弃飞行时创建）；`dropOneAbandoned` 改为返回被丢弃的飞行，保留"丢弃了飞行"与"task 尚未
+  赋值"的区分。`RecipeDrawable.onBoundsChange` 复用字段级 scratch 数组；`setTintList`/`setTintMode`
+  增加身份比较守卫，相同实例重复设置不再触发 `updateTint()` 与 `invalidateSelf()`。
+- 宿主 JVM：`gradlew --offline --no-daemon check`，`CoreContractTest` 20,405 项通过（改动前本地基线
+  20,366 项；新增 8 项 FlightCache 回归与 31 项异步准备示例合同）。新增回归：
+  `rejectionPathLeavesNothingToCancel`（拒绝路径不登记订阅者：被拒 Ticket 无可取消、订阅者不被调用、
+  `cancelledSubscribers` 不增）；`droppedFlightWithoutAssignedTaskStillMakesRoom`（反射构造"排队飞行
+  task 未赋值"的纳秒级竞态窗口，验证仍腾位而非拒绝、task 为 null 不入队移除）。
+- 异步准备示例（`core/src/test/java/.../AsyncPreparationContractTest.java`，纯测试作用域，复用
+  `BindingScope.begin/commit`、`FlightCache.request`、`Subscriber.isCurrent`，无新线程/池/公有 API）：
+  READY 命中立即安装不等回调；每 slot 至多一个 current 提交，完成/失败/拒绝即清理（50 次重复提交后
+  `pendingSubmissions()==1`）；失败与拒绝可观测（不吞）；同 key 替换先 join 新再 cancel 旧，单飞不被
+  自己的替换杀死；仅 owner 线程安装（外部线程投递被 scope 拒绝）；取消/关闭只释放订阅，共享缓存值仍可
+  `peek`，releaser 不销毁共享 V。
+- Android profile：`gradlew --offline --no-daemon -Pmeguviz.profile=android check :android:assembleDebugAndroidTest`
+  （SDK 经本次命令环境变量定位，未写 `local.properties`），编译、lint（无新增错误）与设备测试 APK 组装
+  通过；`ContractInstrumentation.filtersAndAlpha` 新增 tint 守卫断言（同实例重复设置 `invalidations==0`
+  且像素不变；换实例/换 mode/清空各重绘一次）。设备测试 APK 只编译，未安装、未运行。
+- Bridges profile（离线，SDK 经本次命令环境变量定位）：`gradlew --offline --no-daemon -Pmeguviz.profile=bridges check`
+  BUILD SUCCESSFUL，六模块编译/lint/宿主测试（含 `MeguvizBindingTest`）通过。范围：本地 core/android 加
+  已发布上游制品（`meguviz-ui-core`/`meguviz-android-runtime` 1.0.0、JitPack 缓存的 `lumen-engine` 1.5.5），
+  不是三库端到端设备验证。桥仅为 opt-in profile，host 档 `check` 只包含 `:core`；core/android/FlightCache/
+  BindingScope/异步示例不依赖任何 UI/Android 兄弟库，任一库可脱离体系独立使用。
+- 分配（宿主 JVM，`com.sun.management.ThreadMXBean.getThreadAllocatedBytes`，固化探针，7 轮中位数；
+  before 为 git HEAD 还原构建、同一探针二进制、同一夹具；before 每视图 1 fork、after 默认视图 3 fork、
+  raw 视图 2 fork，观测一致）：命中 raw 104.000 → 32.000 B/次（默认视图前后均 32.000，C2 已标量替换
+  非逃逸对象）；加入两种视图均 104.000 → 56.000；拒绝 raw 136.000 → 64.000、默认 104.000 → 32.000；
+  `peek` 全程 0.000。这是分配计数，不是帧耗时，也不是 Android/ART 收益。
+- 设备：有设备在线但未获用户安装授权，未安装、未运行。`contracts`/`binding`/`cache`/`protocol` 等设备
+  模式待授权后执行；未跑通前不声称像素或设备行为结论。
+- 外部检索通道本轮不可用（Exa 返回 401）；上游引用（Go singleflight、Android Drawable 官方文档）均来自
+  直接阅读，不称外部研究。
+- 既有限制（本轮只记录、未改）：`request` 只对 `RejectedExecutionException` 做回滚（`executorRefusal`
+  合同钉住）；执行器抛出其他 `RuntimeException` 时会带着已登记飞行与订阅者从 `request` 抛出，飞行留在
+  map 中直至被取消后放弃——属既有行为，公开错误语义不变，不在本轮扩大 catch。
+- 未验证：真机与硬件 Canvas 路径；R8 后行为；BIL 实际替换后的帧耗时（属 BIL 侧测量）。
