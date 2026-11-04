@@ -233,6 +233,21 @@ public final class ContractInstrumentation extends Instrumentation {
         check(bitmap(d).getPixel(10, 10) == Color.BLUE, "clearing filter restores tint");
         d.setTintList(null);
         check(bitmap(d).getPixel(10, 10) == Color.RED, "clearing tint restores color");
+        // Re-setting the same tint instance or mode cannot change anything: no refresh, no redraw.
+        CallbackProbe callback = new CallbackProbe(); d.setCallback(callback);
+        ColorStateList blue = ColorStateList.valueOf(Color.BLUE);
+        d.setTintList(blue);
+        check(callback.invalidations == 1 && bitmap(d).getPixel(10, 10) == Color.BLUE, "installing a tint redraws once");
+        d.setTintList(blue);
+        check(callback.invalidations == 1 && bitmap(d).getPixel(10, 10) == Color.BLUE,
+                "re-setting the same tint instance neither refreshes nor redraws");
+        d.setTintMode(PorterDuff.Mode.SRC_OVER);
+        check(callback.invalidations == 2 && bitmap(d).getPixel(10, 10) == Color.BLUE, "a new tint mode redraws once");
+        d.setTintMode(PorterDuff.Mode.SRC_OVER);
+        check(callback.invalidations == 2 && bitmap(d).getPixel(10, 10) == Color.BLUE,
+                "re-setting the same tint mode neither refreshes nor redraws");
+        d.setTintList(null);
+        check(callback.invalidations == 3 && bitmap(d).getPixel(10, 10) == Color.RED, "clearing the tint redraws again");
     }
 
     /** Compare transparent-endpoint interpolation to a separately constructed platform shader. */

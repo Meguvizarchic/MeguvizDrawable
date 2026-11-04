@@ -4,10 +4,12 @@ import io.github.jichuo1.meguviz.drawable.cache.FlightCache;
 import io.github.jichuo1.meguviz.drawable.cache.FlightCache.EvictionReason;
 import io.github.jichuo1.meguviz.drawable.cache.FlightCache.Status;
 import io.github.jichuo1.meguviz.drawable.cache.FlightCache.Ticket;
+import java.lang.reflect.Field;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -28,6 +30,8 @@ final class FlightCacheContractTest {
         staleGenerationIsDroppedButCached();
         failuresAreSharedAndNotCached();
         flightLimitAndAbandonedWork();
+        rejectionPathLeavesNothingToCancel();
+        droppedFlightWithoutAssignedTaskStillMakesRoom();
         evictionAndWeight();
         computeNowContracts();
         closeContracts();
@@ -37,6 +41,7 @@ final class FlightCacheContractTest {
         queuedTasksAreRemovedFromThreadPools();
         stampede();
         randomizedBounds();
+        retentionFastPath();
         return checks;
     }
 
@@ -249,6 +254,58 @@ final class FlightCacheContractTest {
         check(cache.stats().abandonedDropped >= 1 && cache.stats().flights == 0, "and the bookkeeping is clean");
     }
 
+    /**
+     * The rejection path registers no subscriber: the ticket has nothing to cancel and the refused
+     * subscriber is never called. Pins the observable side of the lazily created subscriber record.
+     */
+    private static void rejectionPathLeavesNothingToCancel() {
+        Env env = new Env();
+        FlightCache<String, String> cache = env.builder().maxFlights(1).build();
+        cache.request("taken", env.producer(), new Probe("taken"));
+        Probe refused = new Probe("refused");
+        Ticket<String> rejected = cache.request("other", env.producer(), refused);
+        check(rejected.status() == Status.REJECTED_CAPACITY && rejected.value() == null,
+                "past the flight limit the request is rejected");
+        check(!rejected.cancel(), "a rejection registered no subscriber, so there is nothing to cancel");
+        check(refused.events.isEmpty() && cache.stats().cancelledSubscribers == 0
+                && cache.stats().rejectedCapacity == 1 && cache.stats().flights == 1,
+                "the refused subscriber is never called and no cancellation is counted: " + cache.stats());
+        env.workers.runAll();
+        env.owner.drain();
+        check(refused.events.isEmpty() && env.produced.get() == 1 && cache.peek("taken") != null,
+                "the occupying flight is untouched and still produces once");
+    }
+
+    /**
+     * A queued flight whose task is not yet assigned exists only in the nanoseconds between the map
+     * insertion and the task assignment, so the window is reached directly. Dropping such a flight
+     * must still make room for a new request (it did before the lazy unqueue refactor) instead of
+     * rejecting it; the unassigned task is simply not handed to any pool for removal.
+     */
+    private static void droppedFlightWithoutAssignedTaskStillMakesRoom() throws Exception {
+        Env env = new Env();
+        FlightCache<String, String> cache = env.builder().maxFlights(1).build();
+        Ticket<String> taken = cache.request("taken", env.producer(), new Probe("taken"));
+        check(taken.cancel(), "cancelling leaves the flight queued and subscriber-less");
+        Field flights = FlightCache.class.getDeclaredField("flights");
+        flights.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, ?> map = (Map<String, ?>) flights.get(cache);
+        Object flight = map.get("taken");
+        Field task = flight.getClass().getDeclaredField("task");
+        task.setAccessible(true);
+        task.set(flight, null);
+        Probe next = new Probe("next");
+        check(cache.request("next", env.producer(), next).status() == Status.STARTED,
+                "a dropped flight whose task was never assigned still makes room");
+        check(cache.stats().abandonedDropped == 1 && cache.stats().rejectedCapacity == 0
+                && cache.stats().flights == 1, "the drop is counted and nothing is rejected: " + cache.stats());
+        env.workers.runAll();
+        env.owner.drain();
+        check(next.events.equals(listOf("ready:v-next")) && env.produced.get() == 1,
+                "the new flight runs for its subscriber and the superseded task does nothing");
+    }
+
     private static void evictionAndWeight() {
         Env env = new Env();
         FlightCache<String, String> byEntries = env.builder().maxEntries(2).build();
@@ -415,7 +472,10 @@ final class FlightCacheContractTest {
     }
 
     private static void stampede() throws Exception {
-        for (int round = 0; round < 20; round++) {
+        // Default keeps one deterministic round of the real eight-way stampede; the full twenty
+        // rounds are opt-in stress so the default suite stays a representative sample.
+        int rounds = stress() ? 20 : 1;
+        for (int round = 0; round < rounds; round++) {
             final java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
             try {
                 final ManualPoster owner = new ManualPoster();
@@ -475,7 +535,9 @@ final class FlightCacheContractTest {
                 new Thread(new Runnable() { public void run() {
                     Random random = new Random(seed);
                     try {
-                        for (int i = 0; i < 2000; i++) {
+                        // Default is a small deterministic sample; the 4x2000 production-call load
+                        // is opt-in stress.
+                        for (int i = 0; i < (stress() ? 2000 : 16); i++) {
                             final int key = random.nextInt(30);
                             FlightCache.Subscriber<Integer> quiet = new FlightCache.Subscriber<Integer>() {
                                 @Override public boolean isCurrent() { return true; }
@@ -506,6 +568,55 @@ final class FlightCacheContractTest {
         }
     }
 
+    /**
+     * A ticket that reached a terminal state must not keep the producer, the flight (and through its
+     * task the whole cache) or the subscriber alive. Deterministic reflection only: the same-thread
+     * drain()/cancel() program order and the cache lock make the cleared fields visible, so no GC
+     * or production counter is involved.
+     */
+    private static void retentionFastPath() throws Exception {
+        Env env = new Env();
+        FlightCache<String, String> cache = env.builder().build();
+        FlightCache.Producer<String, String> producer = env.producer();
+        Probe probe = new Probe("done");
+        Ticket<String> ticket = cache.request("k", producer, probe);
+        Field subscription = Ticket.class.getDeclaredField("subscription");
+        subscription.setAccessible(true);
+        Object sub = subscription.get(ticket);
+        Field subSubscriber = field(sub.getClass(), "subscriber");
+        Field subFlight = field(sub.getClass(), "flight");
+        Object flight = subFlight.get(sub);
+        Field flightProducer = field(flight.getClass(), "producer");
+        Field flightTask = field(flight.getClass(), "task");
+        check(flight != null && subSubscriber.get(sub) == probe && flightProducer.get(flight) == producer,
+                "a started ticket references its flight, subscriber and producer while in flight");
+        env.workers.runAll();
+        env.owner.drain();
+        check(subSubscriber.get(sub) == null && subFlight.get(sub) == null,
+                "a completed ticket drops the subscriber and the flight");
+        check(flightProducer.get(flight) == null && flightTask.get(flight) == null,
+                "the finished flight drops the producer and the task (which captures the cache)");
+        check(!ticket.cancel(), "a completed ticket has nothing to cancel");
+
+        Ticket<String> cancelled = cache.request("c", env.producer(), new Probe("c"));
+        Object cancelledSub = subscription.get(cancelled);
+        Object cancelledFlight = subFlight.get(cancelledSub);
+        check(cancelled.cancel(), "cancel succeeds");
+        check(subSubscriber.get(cancelledSub) == null && subFlight.get(cancelledSub) == null,
+                "a cancelled ticket drops the subscriber and the flight at once");
+        env.workers.runAll();
+        env.owner.drain();
+        check(flightProducer.get(cancelledFlight) == null && flightTask.get(cancelledFlight) == null,
+                "the abandoned flight drops the producer and the task when it is dropped");
+        check(cache.stats().flights == 0, "no flight is left behind");
+    }
+
+    private static Field field(Class<?> type, String name) throws NoSuchFieldException {
+        Field value = type.getDeclaredField(name);
+        value.setAccessible(true);
+        return value;
+    }
+
     private static List<String> listOf(String... values) {
         List<String> list = new ArrayList<String>();
         Collections.addAll(list, values);
@@ -525,5 +636,10 @@ final class FlightCacheContractTest {
     private static void check(boolean value, String label) {
         checks++;
         if (!value) throw new AssertionError(label);
+    }
+
+    /** Opt-in heavy-load switch shared by the contract suites; default runs stay small. */
+    private static boolean stress() {
+        return Boolean.getBoolean("meguviz.test.stress");
     }
 }

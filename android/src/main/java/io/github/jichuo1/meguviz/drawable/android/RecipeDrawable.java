@@ -36,6 +36,7 @@ public final class RecipeDrawable extends Drawable {
     private final RectF shapeBounds = new RectF();
     private final Path roundedPath = new Path();
     private final float[] radius = new float[8];
+    private final float[] resolved = new float[8];
     private boolean hasGeometry;
     private boolean uniformRadius;
     private int alpha = 255;
@@ -112,7 +113,9 @@ public final class RecipeDrawable extends Drawable {
         ShapeSpec shape = recipe.shape();
         if (shape.kind() == ShapeSpec.Kind.ROUND_RECT) {
             Length[] source = shape.radii();
-            float[] resolved = new float[8];
+            // Reused scratch: CornerRadii.normalize copies its input and never keeps it, and a
+            // drawable instance is confined to its owner thread, so this array never escapes.
+            float[] resolved = this.resolved;
             for (int i = 0; i < 8; i++) resolved[i] = resolve(source[i], width, height);
             float[] normalized = CornerRadii.normalize(shapeBounds.width(), shapeBounds.height(), resolved);
             System.arraycopy(normalized, 0, radius, 0, radius.length);
@@ -173,15 +176,20 @@ public final class RecipeDrawable extends Drawable {
     }
     @Override public ColorFilter getColorFilter() { return explicitFilter; }
     @Override public void setTintList(ColorStateList tint) {
-        this.tint = tint;
-        updateTint();
-        invalidateSelf();
+        // Re-setting the same instance cannot change anything; skip the refresh and the redraw.
+        if (this.tint != tint) {
+            this.tint = tint;
+            updateTint();
+            invalidateSelf();
+        }
     }
     @Override public void setTint(int color) { setTintList(ColorStateList.valueOf(color)); }
     @Override public void setTintMode(PorterDuff.Mode mode) {
-        tintMode = mode;
-        updateTint();
-        invalidateSelf();
+        if (tintMode != mode) {
+            tintMode = mode;
+            updateTint();
+            invalidateSelf();
+        }
     }
     @Override public boolean isStateful() {
         return recipe.fill().kind() == FillSpec.Kind.STATEFUL_SOLID || (tint != null && tint.isStateful());

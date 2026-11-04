@@ -16,8 +16,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * many owners (for example every scene that needs the same background tile).
  *
  * <p><b>Lookup is never a computation.</b> {@link #peek} and the hit path of {@link #request} only
- * read memory, so a draw path can use them on the owner thread; a miss is turned into work for the
- * supplied {@link Executor} instead of being done inline. {@link #computeNow} exists for the one case
+ * read memory and allocate nothing beyond the returned {@link Ticket}, so a draw path can use them
+ * on the owner thread; a miss is turned into work for the supplied {@link Executor} instead of being
+ * done inline. {@link #computeNow} exists for the one case
  * that must be exact and synchronous (an export), and it deliberately never waits for the executor.</p>
  *
  * <p><b>One flight per key.</b> Concurrent requests for a missing key join the same flight: the
@@ -230,7 +231,10 @@ public final class FlightCache<K, V> implements AutoCloseable {
 
     private static final class Flight<K, V> {
         final K key;
-        final Producer<K, V> producer;
+        // Cleared under the lock once the flight reaches a terminal state, so a ticket that outlives
+        // the flight cannot keep the producer (and whatever it captures) alive. Read under the lock
+        // into a local before the producer runs, because close() may clear it while produce() runs.
+        Producer<K, V> producer;
         final List<Sub<K, V>> subscribers = new ArrayList<Sub<K, V>>();
         FlightState state = FlightState.QUEUED;
         volatile boolean cancelled;
@@ -242,7 +246,10 @@ public final class FlightCache<K, V> implements AutoCloseable {
     }
 
     private static final class Sub<K, V> {
-        final Subscriber<V> subscriber;
+        // Cleared under the lock at the terminal state. The subscriber and the flight are the two
+        // outbound references a retained Ticket would otherwise keep alive; all reads/writes hold
+        // the cache lock (deliver reads it under the lock, cancel/close/release write it under it).
+        Subscriber<V> subscriber;
         Flight<K, V> flight;
         volatile boolean cancelled;
         boolean delivered;
@@ -304,20 +311,26 @@ public final class FlightCache<K, V> implements AutoCloseable {
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(producer, "producer");
         Objects.requireNonNull(subscriber, "subscriber");
-        List<Runnable> unqueue = new ArrayList<Runnable>(1);
+        // The hit and rejection paths own nothing. A join does allocate its subscriber record,
+        // because it is registered on the flight; the unqueue list exists only when a flight is
+        // actually started or an abandoned one is dropped to make room for it.
+        List<Runnable> unqueue = null;
         Flight<K, V> start = null;
-        Sub<K, V> sub = new Sub<K, V>(subscriber);
+        Sub<K, V> sub = null;
         Ticket<V> ticket;
         synchronized (lock) {
-            if (closed) return new Ticket<V>(Status.REJECTED_CLOSED, null, null, this);
+            if (closed) return new Ticket<V>(Status.REJECTED_CLOSED, null, null, null);
             Cached<V> hit = cache.get(key);
             if (hit != null) {
                 counters[HITS].incrementAndGet();
-                return new Ticket<V>(Status.READY, hit.value, null, this);
+                // No subscription, so nothing to cancel and no reason to keep the cache reachable
+                // from a ticket whose whole lifetime is this return value.
+                return new Ticket<V>(Status.READY, hit.value, null, null);
             }
             counters[MISSES].incrementAndGet();
             Flight<K, V> joined = flights.get(key);
             if (joined != null && !joined.cancelled) {
+                sub = new Sub<K, V>(subscriber);
                 joined.subscribers.add(sub);
                 sub.flight = joined;
                 counters[JOINS].incrementAndGet();
@@ -325,10 +338,21 @@ public final class FlightCache<K, V> implements AutoCloseable {
             }
             // A flight told to stop (every subscriber left, abandonRunning) is replaced rather than joined;
             // it ends on its own and only removes the map entry if the entry is still itself.
-            if (joined == null && flights.size() >= maxFlights && !dropOneAbandoned(unqueue)) {
+            boolean rejected = false;
+            Flight<K, V> dropped = null;
+            if (joined == null && flights.size() >= maxFlights) {
+                dropped = dropOneAbandoned();
+                rejected = dropped == null;
+            }
+            if (rejected) {
                 counters[REJECTED].incrementAndGet();
-                ticket = new Ticket<V>(Status.REJECTED_CAPACITY, null, null, this);
+                ticket = new Ticket<V>(Status.REJECTED_CAPACITY, null, null, null);
             } else {
+                if (dropped != null && dropped.task != null) {
+                    unqueue = new ArrayList<Runnable>(1);
+                    unqueue.add(dropped.task);
+                }
+                sub = new Sub<K, V>(subscriber);
                 start = new Flight<K, V>(key, producer);
                 start.subscribers.add(sub);
                 sub.flight = start;
@@ -340,16 +364,22 @@ public final class FlightCache<K, V> implements AutoCloseable {
         removeFromQueue(unqueue);
         if (start == null) return ticket;
         final Flight<K, V> flight = start;
-        flight.task = new Runnable() {
+        // The task is assigned outside the lock, so close()/computeNow() can run between the
+        // assignment and the execute call. Keep the reference in a local: the executor must never
+        // see a null task just because another thread cleared flight.task.
+        final Runnable task = new Runnable() {
             @Override public void run() { FlightCache.this.run(flight); }
         };
+        flight.task = task;
         try {
-            workers.execute(flight.task);
+            workers.execute(task);
         } catch (RejectedExecutionException refused) {
             List<Sub<K, V>> others;
             synchronized (lock) {
                 if (flights.get(key) == flight) flights.remove(key);
                 flight.state = FlightState.DONE;
+                flight.producer = null;
+                flight.task = null;
                 counters[STARTED].decrementAndGet();
                 counters[REJECTED].incrementAndGet();
                 flight.subscribers.remove(sub);
@@ -357,7 +387,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
             }
             // Requests that joined in the meantime were promised a callback; they get the refusal.
             deliverAll(others, null, refused);
-            return new Ticket<V>(Status.REJECTED_CAPACITY, null, null, this);
+            return new Ticket<V>(Status.REJECTED_CAPACITY, null, null, null);
         }
         return ticket;
     }
@@ -397,6 +427,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
                     flights.remove(key);
                     queued.state = FlightState.DONE;
                     if (queued.task != null) unqueue.add(queued.task);
+                    queued.producer = null;
                     waiting = drain(queued);
                 }
             }
@@ -438,9 +469,19 @@ public final class FlightCache<K, V> implements AutoCloseable {
             weight = 0;
             for (Flight<K, V> flight : flights.values()) {
                 flight.cancelled = true;
-                for (Sub<K, V> sub : flight.subscribers) sub.cancelled = true;
-                flight.subscribers.clear();
+                // Collect the task so a queued task can still be removed from a ThreadPoolExecutor
+                // queue below. The field itself is left alone: the task is assigned outside the
+                // lock, and clearing it here could race with request()'s execute call.
                 if (flight.state == FlightState.QUEUED && flight.task != null) unqueue.add(flight.task);
+                flight.producer = null;
+                for (Sub<K, V> sub : flight.subscribers) {
+                    sub.cancelled = true;
+                    // close() is terminal for every subscriber, including ones a caller still holds
+                    // a Ticket for; break the Ticket -> Sub -> Flight -> producer/cache chain.
+                    sub.subscriber = null;
+                    sub.flight = null;
+                }
+                flight.subscribers.clear();
             }
             flights.clear();
         }
@@ -449,21 +490,32 @@ public final class FlightCache<K, V> implements AutoCloseable {
     }
 
     private void run(Flight<K, V> flight) {
+        Producer<K, V> producer;
         synchronized (lock) {
-            if (flight.state != FlightState.QUEUED) return;
+            if (flight.state != FlightState.QUEUED) {
+                // Superseded (computeNow) or re-entered: nothing is going to consume it.
+                flight.producer = null;
+                flight.task = null;
+                return;
+            }
             if (closed || flight.subscribers.isEmpty()) {
                 if (flights.get(flight.key) == flight) flights.remove(flight.key);
                 flight.state = FlightState.DONE;
+                flight.producer = null;
+                flight.task = null;
                 if (!closed) counters[ABANDONED].incrementAndGet();
                 return;
             }
             flight.state = FlightState.RUNNING;
+            // Read under the lock: close() may clear producer while produce() runs, but this local
+            // keeps the producer alive for the duration and the produce call itself is unsynchronized.
+            producer = flight.producer;
         }
         V value = null;
         long cost = 0;
         Throwable failure = null;
         try {
-            value = Objects.requireNonNull(flight.producer.produce(flight.key, new Cancellation() {
+            value = Objects.requireNonNull(producer.produce(flight.key, new Cancellation() {
                 @Override public boolean isCancelled() { return closed || flight.cancelled; }
             }), "producer returned null");
             cost = cost(value);
@@ -474,6 +526,8 @@ public final class FlightCache<K, V> implements AutoCloseable {
         List<Sub<K, V>> targets;
         synchronized (lock) {
             flight.state = FlightState.DONE;
+            flight.producer = null;
+            flight.task = null;
             if (flights.get(flight.key) == flight) flights.remove(flight.key);
             if (failure != null) {
                 counters[FAILURES].incrementAndGet();
@@ -507,19 +561,22 @@ public final class FlightCache<K, V> implements AutoCloseable {
         }
     }
 
-    /** Caller holds the lock. Removes the oldest queued flight that nobody waits for. */
-    private boolean dropOneAbandoned(List<Runnable> unqueue) {
+    /**
+     * Caller holds the lock. Removes the oldest queued flight that nobody waits for and returns it so
+     * the caller can take its task out of a thread pool queue, or null when there is none.
+     */
+    private Flight<K, V> dropOneAbandoned() {
         for (Iterator<Flight<K, V>> it = flights.values().iterator(); it.hasNext(); ) {
             Flight<K, V> flight = it.next();
             if (flight.state == FlightState.QUEUED && flight.subscribers.isEmpty()) {
                 it.remove();
                 flight.state = FlightState.DONE;
+                flight.producer = null;
                 counters[ABANDONED].incrementAndGet();
-                if (flight.task != null) unqueue.add(flight.task);
-                return true;
+                return flight;
             }
         }
-        return false;
+        return null;
     }
 
     /** Caller holds the lock. Hands out the subscribers that still want the result. */
@@ -542,6 +599,10 @@ public final class FlightCache<K, V> implements AutoCloseable {
                     && flight.state == FlightState.RUNNING && abandonRunning) {
                 flight.cancelled = true;
             }
+            // Cancelled means terminal: a retained Ticket must not keep the callback or the flight
+            // (and through it the producer and the cache) alive.
+            sub.subscriber = null;
+            sub.flight = null;
             return true;
         }
     }
@@ -556,25 +617,49 @@ public final class FlightCache<K, V> implements AutoCloseable {
             } catch (RuntimeException rejected) {
                 accepted = false;
             }
-            if (!accepted) counters[STALE].incrementAndGet();
+            if (!accepted) {
+                counters[STALE].incrementAndGet();
+                // Nobody will deliver this subscriber; drop its outbound references now.
+                release(sub);
+            }
+        }
+    }
+
+    /** Clears a terminal subscriber's outbound references. Caller may or may not hold the lock. */
+    private void release(Sub<K, V> sub) {
+        synchronized (lock) {
+            sub.subscriber = null;
+            sub.flight = null;
         }
     }
 
     private void deliver(Sub<K, V> sub, V value, Throwable failure) {
+        Subscriber<V> target;
         synchronized (lock) {
-            if (sub.cancelled) {
+            // closed is checked here as well as in close(): a delivery that was drained and posted
+            // before close() is not in a flight any more, so close() cannot cancel it. Dropping it
+            // keeps the documented "no subscriber is called after close" promise.
+            if (sub.cancelled || closed) {
                 counters[STALE].incrementAndGet();
+                release(sub);
                 return;
             }
             sub.delivered = true;
+            target = sub.subscriber;
         }
-        if (!sub.subscriber.isCurrent()) {
-            counters[STALE].incrementAndGet();
-            return;
+        try {
+            if (target == null || !target.isCurrent()) {
+                counters[STALE].incrementAndGet();
+                return;
+            }
+            counters[DELIVERED].incrementAndGet();
+            if (failure == null) target.onReady(value);
+            else target.onFailed(failure);
+        } finally {
+            // Terminal in every path above, including a subscriber that throws: the ticket must not
+            // keep the callback or the flight alive after the callback returned.
+            release(sub);
         }
-        counters[DELIVERED].incrementAndGet();
-        if (failure == null) sub.subscriber.onReady(value);
-        else sub.subscriber.onFailed(failure);
     }
 
     private long cost(V value) {
@@ -585,7 +670,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
     }
 
     private void removeFromQueue(List<Runnable> tasks) {
-        if (tasks.isEmpty() || !(workers instanceof ThreadPoolExecutor)) return;
+        if (tasks == null || tasks.isEmpty() || !(workers instanceof ThreadPoolExecutor)) return;
         ThreadPoolExecutor pool = (ThreadPoolExecutor) workers;
         for (Runnable task : tasks) pool.remove(task);
     }

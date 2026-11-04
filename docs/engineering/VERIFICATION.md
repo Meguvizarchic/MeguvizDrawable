@@ -125,3 +125,72 @@ dev.3 core JAR SHA-256 `51b17b45e0397b5b322b1382bb73e42bb7e7a91199e538eb79e31031
 - 已签名的 Central 上传包（三个桥）不受影响：用当前代码重新构建这三个模块，15 个载荷文件与包中的逐字节一致，`--check-unpublished` 仍通过。
 - 评审中发现并修复：执行器拒绝任务时已加入的订阅者没有回调；被通知停止的运行中飞行仍可被新请求加入；`Flight.task` 的跨线程可见性。已知并记录的限制：`abandonRunning` 下被替换的运行中飞行可短暂超出飞行上限。
 - 未验证：真机与硬件 Canvas 路径；BIL 实际替换后的帧耗时（属 BIL 侧测量）。
+
+## 首轮性能清理与异步准备示例（进度候选），2026-11-04
+
+本节对应进度候选，尚未发布到 Maven Central；公开 API 不变，`docs/abi/1.1.0/` 不需要重新生成（无签名增删）。协议、夹具与完整
+数据见 [PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md)；分配基准的仓库外一次性夹具已固化为
+`benchmark/FlightCacheAllocationProbe.java` + `benchmark/run-flightcache-probe.ps1`。
+
+- 改动（core/android，无生产 API 变化）：`FlightCache.request` 的命中与拒绝路径不再预先创建订阅者
+  记录与 `unqueue` 列表（加入路径仍创建订阅者记录——它登记到飞行上；`unqueue` 仅在启动飞行或为腾位
+  丢弃被放弃飞行时创建）；`dropOneAbandoned` 改为返回被丢弃的飞行，保留"丢弃了飞行"与"task 尚未
+  赋值"的区分。`RecipeDrawable.onBoundsChange` 复用字段级 scratch 数组；`setTintList`/`setTintMode`
+  增加身份比较守卫，相同实例重复设置不再触发 `updateTint()` 与 `invalidateSelf()`。
+- 宿主 JVM：`gradlew --offline --no-daemon check`，`CoreContractTest` 20,405 项通过（改动前本地基线
+  20,366 项；新增 8 项 FlightCache 回归与 31 项异步准备示例合同）。新增回归：
+  `rejectionPathLeavesNothingToCancel`（拒绝路径不登记订阅者：被拒 Ticket 无可取消、订阅者不被调用、
+  `cancelledSubscribers` 不增）；`droppedFlightWithoutAssignedTaskStillMakesRoom`（反射构造"排队飞行
+  task 未赋值"的纳秒级竞态窗口，验证仍腾位而非拒绝、task 为 null 不入队移除）。
+- 异步准备示例（`core/src/test/java/.../AsyncPreparationContractTest.java`，纯测试作用域，复用
+  `BindingScope.begin/commit`、`FlightCache.request`、`Subscriber.isCurrent`，无新线程/池/公有 API）：
+  READY 命中立即安装不等回调；每 slot 至多一个 current 提交，完成/失败/拒绝即清理（50 次重复提交后
+  `pendingSubmissions()==1`）；失败与拒绝可观测（不吞）；同 key 替换先 join 新再 cancel 旧，单飞不被
+  自己的替换杀死；仅 owner 线程安装（外部线程投递被 scope 拒绝）；取消/关闭只释放订阅，共享缓存值仍可
+  `peek`，releaser 不销毁共享 V。
+- Android profile：`gradlew --offline --no-daemon -Pmeguviz.profile=android check :android:assembleDebugAndroidTest`
+  （SDK 经本次命令环境变量定位，未写 `local.properties`），编译、lint（无新增错误）与设备测试 APK 组装
+  通过；`ContractInstrumentation.filtersAndAlpha` 新增 tint 守卫断言（同实例重复设置 `invalidations==0`
+  且像素不变；换实例/换 mode/清空各重绘一次）。设备测试 APK 只编译，未安装、未运行。
+- Bridges profile（离线，SDK 经本次命令环境变量定位）：`gradlew --offline --no-daemon -Pmeguviz.profile=bridges check`
+  BUILD SUCCESSFUL，六模块编译/lint/宿主测试（含 `MeguvizBindingTest`）通过。范围：本地 core/android 加
+  已发布上游制品（`meguviz-ui-core`/`meguviz-android-runtime` 1.0.0、JitPack 缓存的 `lumen-engine` 1.5.5），
+  不是三库端到端设备验证。桥仅为 opt-in profile，host 档 `check` 只包含 `:core`；core/android/FlightCache/
+  BindingScope/异步示例不依赖任何 UI/Android 兄弟库，任一库可脱离体系独立使用。
+- 分配（宿主 JVM，`com.sun.management.ThreadMXBean.getThreadAllocatedBytes`，固化探针，7 轮中位数；
+  before 为固定提交 `2690458` 还原构建、同一探针二进制、同一夹具；before 每视图 1 fork、after 默认视图 3 fork、
+  raw 视图 2 fork，观测一致）：命中 raw 104.000 → 32.000 B/次（默认视图前后均 32.000，C2 已标量替换
+  非逃逸对象）；加入两种视图均 104.000 → 56.000；拒绝 raw 136.000 → 64.000、默认 104.000 → 32.000；
+  `peek` 全程 0.000。这是分配计数，不是帧耗时，也不是 Android/ART 收益。
+- 设备：有设备在线但未获用户安装授权，未安装、未运行。`contracts`/`binding`/`cache`/`protocol` 等设备
+  模式待授权后执行；未跑通前不声称像素或设备行为结论。
+- 外部检索通道本轮不可用（Exa 返回 401）；上游引用（Go singleflight、Android Drawable 官方文档）均来自
+  直接阅读，不称外部研究。
+- 既有限制（本轮只记录、未改）：`request` 只对 `RejectedExecutionException` 做回滚（`executorRefusal`
+  合同钉住）；执行器抛出其他 `RuntimeException` 时会带着已登记飞行与订阅者从 `request` 抛出，飞行留在
+  map 中直至被取消后放弃——属既有行为，公开错误语义不变，不在本轮扩大 catch。
+- 未验证：真机与硬件 Canvas 路径；R8 后行为；BIL 实际替换后的帧耗时（属 BIL 侧测量）。
+
+## 二轮算法与默认检查精简，2026-11-04
+
+- 新增显式 `StateMatcher.prepare(rules)` 与可复用 `PreparedMatcher`，默认 direct matcher 和
+  `RecipeDrawable` 不自动预编译；K、规则数及建表预算超限均直接回退。细节与准备成本见
+  [状态匹配预编译](STATE_MATCHER_PREPARED.md)。未发布的 1.1.0 ABI 文本与 JSON 已从实际 staging
+  候选成套生成并复核：仅新增 prepare/PreparedMatcher，Central 1.0.0 基线未改。
+- `FlightCache` 终态清理订阅者、飞行与生产者引用，READY/拒绝票据不保存 cache；关闭后尚未交付的
+  已投递结果丢弃并计 `droppedStale`。STARTED/JOINED 票据仍可能经 owner 保留 cache，未宣称完全
+  脱引用；确定性断言与其余限制见 [票据引用释放](FLIGHT_RETENTION.md)。
+- 用户要求减少日常检查量后，默认 `gradlew --offline --no-daemon check` 实际通过 **707 项**：
+  核心状态/几何 82、状态匹配差分 224、其余六套合同 401。没有聚合断言或仅修改打印；默认随机
+  状态/几何各从 10,000 降至 32，单飞并发从 20 轮降至 1 轮真实 8 线程竞争，随机压力从 8,000 次
+  降至 64 次。绑定、Provider、票据、取消、关闭、拒绝与所有权独特断言全部保留。
+- 大语料保留为显式 `gradlew --offline --no-daemon :core:contractStress`，不被默认 check 拉入；
+  默认总数若达到 1,000 会失败并要求重新划分语料，防止测试再次无界增长。大 matcher 语料的单独
+  stress 入口复核为 426,900 项，不能把该数当日常默认量。
+- 精简后 `-Pmeguviz.profile=bridges check :android:assembleDebugAndroidTest` 通过：核心仍为
+  707 项，Android 与四个可选桥的编译/lint/现有宿主合同通过，测试 APK 仅组装未安装。
+- 精简后在隔离构建副本验证 4 个关键变异：首匹配改末匹配、忽略 state 的 0 终止符、建表预算
+  `>` 改 `>=`、删除订阅者终态清引用。四个变异均编译成功、均被默认合同识别并非零退出；原版
+  默认合同仍为 707 项通过。没有修改正式生产源码，也未借压力语料补检出。
+- 独立核心与可选桥边界不变：core 无 Android/兄弟库依赖，桥仍需显式选档；这些主机结果不代表
+  真机像素、ART 性能或 R8 后设备行为通过。

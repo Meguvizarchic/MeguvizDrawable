@@ -11,6 +11,7 @@ public final class CoreContractTest {
     private static int checks;
 
     public static void main(String[] args) throws Exception {
+        checks = 0;
         immutabilityAndOrdering();
         stateCorpus();
         geometry();
@@ -18,7 +19,14 @@ public final class CoreContractTest {
         checks += BindingContractTest.run();
         checks += ProviderExtensionContractTest.run();
         checks += FlightCacheContractTest.run();
-        System.out.println("CoreContractTest: " + checks + " checks passed");
+        checks += AsyncPreparationContractTest.run();
+        checks += StateMatcherFastPathTest.run();
+        checks += TicketRetentionContractTest.run();
+        if (!Boolean.getBoolean("meguviz.test.stress") && checks >= 1000) {
+            throw new AssertionError("Default contract budget exceeded: " + checks + "; keep broad corpora opt-in");
+        }
+        System.out.println("CoreContractTest: " + checks + " checks passed"
+                + (Boolean.getBoolean("meguviz.test.stress") ? " (stress)" : " (default)"));
     }
 
     private static void immutabilityAndOrdering() {
@@ -50,7 +58,8 @@ public final class CoreContractTest {
     private static void stateCorpus() {
         Random random = new Random(20261026L);
         int[] ids = {1, 2, 3, 4, 5, 6, 0x7f010001, 0x7f010021, 0x70000001};
-        for (int trial = 0; trial < 10000; trial++) {
+        int samples = Boolean.getBoolean("meguviz.test.stress") ? 10000 : 32;
+        for (int trial = 0; trial < samples; trial++) {
             int[] spec = new int[random.nextInt(8)];
             int[] state = new int[random.nextInt(12)];
             for (int i = 0; i < spec.length; i++) {
@@ -91,7 +100,8 @@ public final class CoreContractTest {
         expectFailure(new Runnable() { public void run() { CornerRadii.normalize(Float.NaN, 1, new float[8]); }});
         expectFailure(new Runnable() { public void run() { CornerRadii.normalize(1, 1, new float[] {0, 0, 0, 0, 0, 0, 0, Float.POSITIVE_INFINITY}); }});
         Random random = new Random(42);
-        for (int trial = 0; trial < 10000; trial++) {
+        int samples = Boolean.getBoolean("meguviz.test.stress") ? 10000 : 32;
+        for (int trial = 0; trial < samples; trial++) {
             float w = random.nextFloat() * 1000;
             float h = random.nextFloat() * 1000;
             float[] input = new float[8];
