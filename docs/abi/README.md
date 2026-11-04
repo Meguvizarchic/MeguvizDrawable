@@ -30,7 +30,7 @@ Android API availability, shrinking or dynamic providers.
 
 `0.1.0-dev.2/`, `0.1.0-dev.3/`, `0.1.0-dev.4/` and `1.0.0/` are separate later candidate snapshots;
 `1.0.0/` only adds to the `0.1.0-dev.4` API text. `1.0.0/core-api.*` is taken from the jar released
-on Maven Central; `1.1.0/` is the unreleased core and android, which only add API (`BindingScope.claim`, `FlightCache`, `MainThreadPoster`, `BitmapWeigher`); nothing was removed or changed against 1.0.0. `1.0.0/` also holds first dumps of the four optional
+on Maven Central; `1.1.0/` is the unreleased core and android, which only add API (`BindingScope.claim`, `FlightCache`, opt-in `StateMatcher.prepare` / `PreparedMatcher`, `MainThreadPoster`, `BitmapWeigher`); nothing was removed or changed against 1.0.0. `1.0.0/` also holds first dumps of the four optional
 bridge artifacts (`compose`, `meguviz-android`, `meguviz-ui`, `lumen`); they are baselines, not compatibility claims.
 Preserve the earlier directories instead of replacing them. The frozen `fixtures/abi/LegacyCoreClient`
 exercises a small old core API subset without recompiling; it is not an

@@ -41,6 +41,7 @@ final class FlightCacheContractTest {
         queuedTasksAreRemovedFromThreadPools();
         stampede();
         randomizedBounds();
+        retentionFastPath();
         return checks;
     }
 
@@ -471,7 +472,10 @@ final class FlightCacheContractTest {
     }
 
     private static void stampede() throws Exception {
-        for (int round = 0; round < 20; round++) {
+        // Default keeps one deterministic round of the real eight-way stampede; the full twenty
+        // rounds are opt-in stress so the default suite stays a representative sample.
+        int rounds = stress() ? 20 : 1;
+        for (int round = 0; round < rounds; round++) {
             final java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
             try {
                 final ManualPoster owner = new ManualPoster();
@@ -531,7 +535,9 @@ final class FlightCacheContractTest {
                 new Thread(new Runnable() { public void run() {
                     Random random = new Random(seed);
                     try {
-                        for (int i = 0; i < 2000; i++) {
+                        // Default is a small deterministic sample; the 4x2000 production-call load
+                        // is opt-in stress.
+                        for (int i = 0; i < (stress() ? 2000 : 16); i++) {
                             final int key = random.nextInt(30);
                             FlightCache.Subscriber<Integer> quiet = new FlightCache.Subscriber<Integer>() {
                                 @Override public boolean isCurrent() { return true; }
@@ -562,6 +568,55 @@ final class FlightCacheContractTest {
         }
     }
 
+    /**
+     * A ticket that reached a terminal state must not keep the producer, the flight (and through its
+     * task the whole cache) or the subscriber alive. Deterministic reflection only: the same-thread
+     * drain()/cancel() program order and the cache lock make the cleared fields visible, so no GC
+     * or production counter is involved.
+     */
+    private static void retentionFastPath() throws Exception {
+        Env env = new Env();
+        FlightCache<String, String> cache = env.builder().build();
+        FlightCache.Producer<String, String> producer = env.producer();
+        Probe probe = new Probe("done");
+        Ticket<String> ticket = cache.request("k", producer, probe);
+        Field subscription = Ticket.class.getDeclaredField("subscription");
+        subscription.setAccessible(true);
+        Object sub = subscription.get(ticket);
+        Field subSubscriber = field(sub.getClass(), "subscriber");
+        Field subFlight = field(sub.getClass(), "flight");
+        Object flight = subFlight.get(sub);
+        Field flightProducer = field(flight.getClass(), "producer");
+        Field flightTask = field(flight.getClass(), "task");
+        check(flight != null && subSubscriber.get(sub) == probe && flightProducer.get(flight) == producer,
+                "a started ticket references its flight, subscriber and producer while in flight");
+        env.workers.runAll();
+        env.owner.drain();
+        check(subSubscriber.get(sub) == null && subFlight.get(sub) == null,
+                "a completed ticket drops the subscriber and the flight");
+        check(flightProducer.get(flight) == null && flightTask.get(flight) == null,
+                "the finished flight drops the producer and the task (which captures the cache)");
+        check(!ticket.cancel(), "a completed ticket has nothing to cancel");
+
+        Ticket<String> cancelled = cache.request("c", env.producer(), new Probe("c"));
+        Object cancelledSub = subscription.get(cancelled);
+        Object cancelledFlight = subFlight.get(cancelledSub);
+        check(cancelled.cancel(), "cancel succeeds");
+        check(subSubscriber.get(cancelledSub) == null && subFlight.get(cancelledSub) == null,
+                "a cancelled ticket drops the subscriber and the flight at once");
+        env.workers.runAll();
+        env.owner.drain();
+        check(flightProducer.get(cancelledFlight) == null && flightTask.get(cancelledFlight) == null,
+                "the abandoned flight drops the producer and the task when it is dropped");
+        check(cache.stats().flights == 0, "no flight is left behind");
+    }
+
+    private static Field field(Class<?> type, String name) throws NoSuchFieldException {
+        Field value = type.getDeclaredField(name);
+        value.setAccessible(true);
+        return value;
+    }
+
     private static List<String> listOf(String... values) {
         List<String> list = new ArrayList<String>();
         Collections.addAll(list, values);
@@ -581,5 +636,10 @@ final class FlightCacheContractTest {
     private static void check(boolean value, String label) {
         checks++;
         if (!value) throw new AssertionError(label);
+    }
+
+    /** Opt-in heavy-load switch shared by the contract suites; default runs stay small. */
+    private static boolean stress() {
+        return Boolean.getBoolean("meguviz.test.stress");
     }
 }

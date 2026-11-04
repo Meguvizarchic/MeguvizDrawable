@@ -170,3 +170,27 @@ dev.3 core JAR SHA-256 `51b17b45e0397b5b322b1382bb73e42bb7e7a91199e538eb79e31031
   合同钉住）；执行器抛出其他 `RuntimeException` 时会带着已登记飞行与订阅者从 `request` 抛出，飞行留在
   map 中直至被取消后放弃——属既有行为，公开错误语义不变，不在本轮扩大 catch。
 - 未验证：真机与硬件 Canvas 路径；R8 后行为；BIL 实际替换后的帧耗时（属 BIL 侧测量）。
+
+## 二轮算法与默认检查精简，2026-11-04
+
+- 新增显式 `StateMatcher.prepare(rules)` 与可复用 `PreparedMatcher`，默认 direct matcher 和
+  `RecipeDrawable` 不自动预编译；K、规则数及建表预算超限均直接回退。细节与准备成本见
+  [状态匹配预编译](STATE_MATCHER_PREPARED.md)。未发布的 1.1.0 ABI 文本与 JSON 已从实际 staging
+  候选成套生成并复核：仅新增 prepare/PreparedMatcher，Central 1.0.0 基线未改。
+- `FlightCache` 终态清理订阅者、飞行与生产者引用，READY/拒绝票据不保存 cache；关闭后尚未交付的
+  已投递结果丢弃并计 `droppedStale`。STARTED/JOINED 票据仍可能经 owner 保留 cache，未宣称完全
+  脱引用；确定性断言与其余限制见 [票据引用释放](FLIGHT_RETENTION.md)。
+- 用户要求减少日常检查量后，默认 `gradlew --offline --no-daemon check` 实际通过 **707 项**：
+  核心状态/几何 82、状态匹配差分 224、其余六套合同 401。没有聚合断言或仅修改打印；默认随机
+  状态/几何各从 10,000 降至 32，单飞并发从 20 轮降至 1 轮真实 8 线程竞争，随机压力从 8,000 次
+  降至 64 次。绑定、Provider、票据、取消、关闭、拒绝与所有权独特断言全部保留。
+- 大语料保留为显式 `gradlew --offline --no-daemon :core:contractStress`，不被默认 check 拉入；
+  默认总数若达到 1,000 会失败并要求重新划分语料，防止测试再次无界增长。大 matcher 语料的单独
+  stress 入口复核为 426,900 项，不能把该数当日常默认量。
+- 精简后 `-Pmeguviz.profile=bridges check :android:assembleDebugAndroidTest` 通过：核心仍为
+  707 项，Android 与四个可选桥的编译/lint/现有宿主合同通过，测试 APK 仅组装未安装。
+- 精简后在隔离构建副本验证 4 个关键变异：首匹配改末匹配、忽略 state 的 0 终止符、建表预算
+  `>` 改 `>=`、删除订阅者终态清引用。四个变异均编译成功、均被默认合同识别并非零退出；原版
+  默认合同仍为 707 项通过。没有修改正式生产源码，也未借压力语料补检出。
+- 独立核心与可选桥边界不变：core 无 Android/兄弟库依赖，桥仍需显式选档；这些主机结果不代表
+  真机像素、ART 性能或 R8 后设备行为通过。

@@ -33,6 +33,16 @@ val contractTest = tasks.register<JavaExec>("contractTest") {
     mainClass = "io.github.jichuo1.meguviz.drawable.core.CoreContractTest"
 }
 
+// Broad randomized and repeated concurrency corpora are explicit, never part of the default check.
+tasks.register<JavaExec>("contractStress") {
+    group = "verification"
+    description = "Runs the opt-in broad state, geometry and concurrency corpora."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass = "io.github.jichuo1.meguviz.drawable.core.CoreContractTest"
+    systemProperty("meguviz.test.stress", "true")
+}
+
 // The current suite is an executable Java program, not a test-framework suite.
 tasks.test {
     enabled = false

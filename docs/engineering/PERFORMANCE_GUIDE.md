@@ -67,7 +67,11 @@
 ```text
 gradlew --offline --no-daemon check
 gradlew --offline --no-daemon -Pmeguviz.profile=android check :android:assembleDebugAndroidTest
+# 手动扩展验证，不属于默认 check：
+gradlew --offline --no-daemon :core:contractStress
 ```
+
+默认合同按语义等价类保留少量固定种子样本与精确边界，并约束总实际检查数小于 1,000；随机状态/几何大语料、完整差分穷举和重复并发压力只在 `contractStress` 中执行。计数仍是实际断言数，不以聚合布尔或修改显示隐藏循环。不要把可选压力任务接回日常 `check`。
 
 宿主合同现包含 `AsyncPreparationContractTest`：只用既有 API（`BindingScope.begin/commit` +
 `FlightCache.request` + `Subscriber.isCurrent`）演示通用异步准备——READY 命中立即安装、每 slot 一个

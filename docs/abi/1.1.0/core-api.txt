@@ -464,6 +464,15 @@ public final class io.github.jichuo1.meguviz.drawable.core.StateMatcher {
 
   public static int matchIndex(io.github.jichuo1.meguviz.drawable.model.StateColorList, int[]);
     descriptor: (Lio/github/jichuo1/meguviz/drawable/model/StateColorList;[I)I
+
+  public static io.github.jichuo1.meguviz.drawable.core.StateMatcher$PreparedMatcher prepare(io.github.jichuo1.meguviz.drawable.model.StateColorList);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/StateColorList;)Lio/github/jichuo1/meguviz/drawable/core/StateMatcher$PreparedMatcher;
+}
+
+# io.github.jichuo1.meguviz.drawable.core.StateMatcher$PreparedMatcher (public)
+public final class io.github.jichuo1.meguviz.drawable.core.StateMatcher$PreparedMatcher {
+  public int matchIndex(int[]);
+    descriptor: ([I)I
 }
 
 # io.github.jichuo1.meguviz.drawable.model.DrawingRecipe (public)
