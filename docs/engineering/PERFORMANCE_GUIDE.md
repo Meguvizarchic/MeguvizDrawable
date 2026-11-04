@@ -29,7 +29,7 @@
 （`CoreContractTest` 20,405 项通过，含本轮新增的回归与异步准备示例合同）。
 
 结果（每调用分配字节数，7 轮中位数；确定性数值。由 `benchmark/FlightCacheAllocationProbe.java`
-对 git HEAD 还原的改动前构建与当前构建分别测得，同一探针二进制、同一夹具）：
+对固定基线提交 `2690458` 还原的改动前构建与候选构建分别测得，同一探针二进制、同一夹具）：
 
 | 路径 | 改动前（默认 EA） | 改动后（默认 EA） | 改动前（`-XX:-DoEscapeAnalysis`） | 改动后（`-XX:-DoEscapeAnalysis`） |
 |---|---|---|---|---|
@@ -89,7 +89,7 @@ powershell -ExecutionPolicy Bypass -File benchmark/run-flightcache-probe.ps1 -Fo
 powershell -ExecutionPolicy Bypass -File benchmark/run-flightcache-probe.ps1 -Forks 3 -View raw
 ```
 
-对 git HEAD 还原的改动前构建用同一探针二进制补测，保证前后同夹具、同工具。
+对固定基线提交 `2690458` 还原的改动前构建用同一探针二进制补测，保证前后同夹具、同工具；不要把提交后的 `HEAD` 当作改动前基线。
 
 ## 同期结构性改动（无宿主运行视图）
 

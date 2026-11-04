@@ -126,9 +126,9 @@ dev.3 core JAR SHA-256 `51b17b45e0397b5b322b1382bb73e42bb7e7a91199e538eb79e31031
 - 评审中发现并修复：执行器拒绝任务时已加入的订阅者没有回调；被通知停止的运行中飞行仍可被新请求加入；`Flight.task` 的跨线程可见性。已知并记录的限制：`abandonRunning` 下被替换的运行中飞行可短暂超出飞行上限。
 - 未验证：真机与硬件 Canvas 路径；BIL 实际替换后的帧耗时（属 BIL 侧测量）。
 
-## 首轮性能清理与异步准备示例（未提交工作树），2026-11-04
+## 首轮性能清理与异步准备示例（进度候选），2026-11-04
 
-未提交工作树改动，公开 API 不变，`docs/abi/1.1.0/` 不需要重新生成（无签名增删）。协议、夹具与完整
+本节对应进度候选，尚未发布到 Maven Central；公开 API 不变，`docs/abi/1.1.0/` 不需要重新生成（无签名增删）。协议、夹具与完整
 数据见 [PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md)；分配基准的仓库外一次性夹具已固化为
 `benchmark/FlightCacheAllocationProbe.java` + `benchmark/run-flightcache-probe.ps1`。
 
@@ -158,7 +158,7 @@ dev.3 core JAR SHA-256 `51b17b45e0397b5b322b1382bb73e42bb7e7a91199e538eb79e31031
   不是三库端到端设备验证。桥仅为 opt-in profile，host 档 `check` 只包含 `:core`；core/android/FlightCache/
   BindingScope/异步示例不依赖任何 UI/Android 兄弟库，任一库可脱离体系独立使用。
 - 分配（宿主 JVM，`com.sun.management.ThreadMXBean.getThreadAllocatedBytes`，固化探针，7 轮中位数；
-  before 为 git HEAD 还原构建、同一探针二进制、同一夹具；before 每视图 1 fork、after 默认视图 3 fork、
+  before 为固定提交 `2690458` 还原构建、同一探针二进制、同一夹具；before 每视图 1 fork、after 默认视图 3 fork、
   raw 视图 2 fork，观测一致）：命中 raw 104.000 → 32.000 B/次（默认视图前后均 32.000，C2 已标量替换
   非逃逸对象）；加入两种视图均 104.000 → 56.000；拒绝 raw 136.000 → 64.000、默认 104.000 → 32.000；
   `peek` 全程 0.000。这是分配计数，不是帧耗时，也不是 Android/ART 收益。
