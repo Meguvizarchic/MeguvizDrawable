@@ -133,9 +133,13 @@ internal class ComposeContract(private val instrumentation: Instrumentation) {
         val unpressed = DrawableState.Default
         check(unpressed == DrawableState() && unpressed.hashCode() == DrawableState().hashCode()
             && unpressed != DrawableState(pressed = true), "state values compare structurally")
-        check(DrawableState(pressed = true, checked = true).stateSet.toSet() ==
-            setOf(android.R.attr.state_enabled, android.R.attr.state_pressed, android.R.attr.state_checked),
-            "state flags map to platform attributes")
+        val pressedChecked = DrawableState(pressed = true, checked = true).stateSet
+        check(pressedChecked.contentEquals(intArrayOf(
+            android.R.attr.state_enabled, android.R.attr.state_pressed, android.R.attr.state_checked)),
+            "state flags map to platform attributes in order")
+        check(DrawableState.Default.stateSet.contentEquals(intArrayOf(android.R.attr.state_enabled)),
+            "default state is enabled only")
+        check(DrawableState(enabled = false).stateSet.isEmpty(), "no flags yields an empty array")
     }
 
     private fun recipeChangeReplacesAndReleases() {
