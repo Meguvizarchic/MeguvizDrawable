@@ -117,6 +117,25 @@ powershell -ExecutionPolicy Bypass -File benchmark/run-flightcache-probe.ps1 -Fo
 未运行（有设备在线但未获安装授权，见 [VERIFICATION.md](VERIFICATION.md) 对应小节），在跑通前不声称
 像素结论。
 
+## 2026-11-05：不可变模型同一性快速路径与 `DrawableState` 精确分配
+
+两项低风险改动，均无宿主运行视图（前者只影响比较成本，后者在 Compose/Android 侧）：
+
+1. `core/model` 下 8 个不可变模型类（`DrawingRecipe`、`FillSpec`、`ShapeSpec`、`LayoutMetrics`、
+   `StrokeSpec`、`Length`、`StateSpec`、`StateColorList`）以及 `binding/BindingEnvironment`、
+   `compose/DrawableState` 的 `equals` 开头增加同一性快速路径。这些实例不可变，
+   `SlotBinding.spec.equals(appliedSpec)`、`BindingScope` 的环境比较、`RememberRecipePainter` 的
+   `remember(recipe, …)` 与宿主若以 recipe 为键的哈希容器会在重复实例比较上直接受益；
+   `hashCode` 与字段未改，ABI 不变。
+2. `DrawableState.stateSet` 由 `IntArray(7)` + `copyOf(count)` 两次分配改为先计数再
+   `IntArray(count)` 一次分配；flag 顺序与"每次返回新数组"的契约不变。
+
+验证：`./gradlew :core:contractTest`（106 项通过）、`./gradlew check` 通过、
+`tools/dump_abi.py` 生成的 `core-api` 与 `docs/abi/1.1.0/core-api.json` 一致、
+`:compose:compileDebugKotlin -Pmeguviz.profile=bridges` 通过（需 `ANDROID_HOME`）。设备合同
+`ComposeContract` 的 `stateSet` 断言已加强为精确数组相等（含顺序、长度与全 false 空数组），
+但该 androidTest 不在 `check` 内，本轮未在设备运行；不声称设备收益。
+
 ## 参考（直接阅读，非外部研究服务）
 
 - Go `golang.org/x/sync/singleflight`（https://pkg.go.dev/golang.org/x/sync/singleflight）：同键并发
