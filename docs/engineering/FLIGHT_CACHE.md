@@ -98,7 +98,7 @@ when (ticket.status()) {
 ## 命中路径锁粒度与投递/监听异常（2026-11-05 第三轮）
 
 - `request` 的命中与 `REJECTED_CLOSED` 路径现在在锁内只读 `hit.value`/状态，锁外构造 `Ticket`；命中路径锁内零分配，契约不变。`Flight.subscribers` 由默认容量 10 改为 1。
-- `deliverAll` 的 `owner.post` 与 `notifyEvicted` 的 `onEvicted` 由只捕 `RuntimeException` 改为捕 `Throwable`（仍计 `STALE`/`LISTENER_FAILURES`，不重抛），与 `request` 的执行器失败回滚一致；避免 `Error` 中断后续订阅者投递或外泄到 `run`/`computeNow` 调用方。
+- `deliverAll` 的 `owner.post` 与 `notifyEvicted` 的 `onEvicted` 由只捕 `RuntimeException` 改为捕 `Throwable`（仍计 `STALE`/`LISTENER_FAILURES`，不重抛），与 `request` 的执行器失败回滚一致；避免**投递动作本身**失败时中断后续订阅者或外泄到 `run`/`computeNow` 调用方。边界：订阅者自身回调（`Subscriber.isCurrent/onReady/onFailed`）抛出的异常不由缓存承接，仍按既有约定外泄。`Flight.subscribers` 预容量 1 是为单订阅者常见情形省去默认 10 槽数组；多订阅者合并时会多次扩容，属未测量的反向权衡。
 
 合同：`FlightCacheContractTest.posterErrorIsCountedAndDoesNotLeak`、`evictionListenerErrorIsCountedNotThrown`（并做了变异验证：改回 `RuntimeException` 会失败）。`:core:contractTest` 117 项、`check` 与 `dump_abi.py` 基线一致均通过。
 
