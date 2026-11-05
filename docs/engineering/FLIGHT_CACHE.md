@@ -95,6 +95,13 @@ when (ticket.status()) {
 
 合同：`FlightCacheContractTest.executorFailureIsNotARefusal`（自定义执行器先 JOIN 一个订阅者再抛 `IllegalStateException`；断言异常传播、`stats().flights == 0`、`peek == null`、加入者收到失败、首订阅者无回调）。`:core:contractTest` 109 项、`check`、`contractStress`（447,189 项）与 `dump_abi.py` 基线一致均通过；未修复版本在同一用例上失败（`flights=1`）。
 
+## 命中路径锁粒度与投递/监听异常（2026-11-05 第三轮）
+
+- `request` 的命中与 `REJECTED_CLOSED` 路径现在在锁内只读 `hit.value`/状态，锁外构造 `Ticket`；命中路径锁内零分配，契约不变。`Flight.subscribers` 由默认容量 10 改为 1。
+- `deliverAll` 的 `owner.post` 与 `notifyEvicted` 的 `onEvicted` 由只捕 `RuntimeException` 改为捕 `Throwable`（仍计 `STALE`/`LISTENER_FAILURES`，不重抛），与 `request` 的执行器失败回滚一致；避免 `Error` 中断后续订阅者投递或外泄到 `run`/`computeNow` 调用方。
+
+合同：`FlightCacheContractTest.posterErrorIsCountedAndDoesNotLeak`、`evictionListenerErrorIsCountedNotThrown`（并做了变异验证：改回 `RuntimeException` 会失败）。`:core:contractTest` 117 项、`check` 与 `dump_abi.py` 基线一致均通过。
+
 ## 票据生命周期与长期持有
 
 当前源码候选在完成、取消、投递拒绝和关闭时及时断开订阅者与飞行的生产者引用；READY/拒绝票据没有可取消订阅，也不再保存 cache 引用。已经排入 owner 队列但在关闭前尚未开始交付的结果，关闭后会丢弃并计入 `droppedStale`。
