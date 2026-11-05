@@ -9,8 +9,8 @@
 `RecipeDrawable` 自 2026-11-05 起**按实例惰性**持有一个 `PreparedMatcher`：首次
 `STATEFUL_SOLID` 外观更新时才 `prepare` 一次，之后每次状态变化只做一次字段读 + 数组读。
 不在构造期建表，因为 `ConstantState.newDrawable()` 与 XML inflation 会创建大量可能永不
-变化状态的实例，而 K=16/R=64 的建表实测约 2 ms。宽规则或超预算时 `prepare` 返回委托
-direct 的 fallback，行为与直接匹配一致。
+变化状态的实例，而大表建表成本按 `(1<<K)*R` 外推可达数毫秒。宽规则或超预算时 `prepare`
+返回委托 direct 的 fallback，行为与直接匹配一致。
 
 ## 有界共享缓存（`StateMatcherCache`）
 
@@ -19,7 +19,7 @@ direct 的 fallback，行为与直接匹配一致。
 
 - **键只含规则条件**（有序 `StateSpec` 列表），不含颜色：条件相同、颜色不同的两个列表共享
   同一张表。键在构造时算好 `hashCode`，查找不再重走每个条件。
-- **准入**：distinct ID ≤ 8 无条件缓存；> 8 需**表负载**（`2 * 2^K`，不含键字节）≤ `maxWeight/8`。默认 1 MiB 下 K=16（128 KiB）恰好可缓存，K=17 起 `prepare` 本身已 fallback。**超限在 `prepare` 之前按 distinct-ID 扫描预估拒绝**，不付建表成本（K=16/R=64 的建表约 2 ms）。成本超过整个 `maxWeight` 的条目直接拒绝，避免「每次建表又立刻淘汰」的空转。委托 direct 的 fallback **不缓存**（无收益且会保留 rules 引用）。
+- **准入**：distinct ID ≤ 8 无条件缓存；> 8 需**表负载**（`2 * 2^K`，不含键字节）≤ `maxWeight/8`。默认 1 MiB 下 K=16（128 KiB）恰好可缓存，K=17 起 `prepare` 本身已 fallback。**超限在 `prepare` 之前按 distinct-ID 扫描预估拒绝**，不付建表成本（K=16/R=64 的建表成本按 `(1<<K)*R` 预算与实测 `ns/填充操作` 外推为数毫秒，仓库内无该 fixture 的直接实测）。成本超过整个 `maxWeight` 的条目直接拒绝，避免「每次建表又立刻淘汰」的空转。委托 direct 的 fallback **不缓存**（无收益且会保留 rules 引用）。
 - **权重**：表字节（`2 * 2^K`）+ 键保留字节；默认上限 1 MiB，按访问序 LRU 淘汰。键保留字节只计 `StateSpec[]` 数组本身，不含被共享的 `StateSpec` 对象，因此实际内存略高于记账值。
 - **建表在锁外**，锁只保护映射操作，避免 K=16 的 ~2 ms 建表阻塞其他线程。访问序 `LinkedHashMap.get` 会改写链表，所以查找本身在监视器内串行；「每实例一次」量级可接受，每帧调用则需换并发映射 + 独立 LRU。
 - **查询热路径绝不查缓存**：独立测量显示 `HashMap<StateColorList,…>` 在 R≥16 时每次 52–61 ns，比 direct（10–66 ns）更慢，因为 `StateColorList.hashCode` 是 O(R)。该测量来自未跟踪的 scratch 探针（`benchmark/build/scratch/StateMatcherProbe.java` 的 `cacheOverhead`），未并入已跟踪探针。

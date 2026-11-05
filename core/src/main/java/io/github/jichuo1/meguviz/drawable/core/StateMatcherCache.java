@@ -33,6 +33,12 @@ public final class StateMatcherCache {
     /** Distinct-ID counts above this need an explicit weight budget to be cached. */
     private static final int ALWAYS_CACHE_MAX_IDS = 8;
 
+    /** Distinct IDs the matcher can ever compile into a table (mirrors {@code MAX_TABLE_IDS}). */
+    private static final int MAX_TABLE_IDS = 16;
+
+    /** Distinct IDs the scan can hold plus one sentinel for "over the table bound". */
+    private static final int MAX_DISTINCT_SCAN = MAX_TABLE_IDS + 1;
+
     private static final StateMatcherCache SHARED = new StateMatcherCache(DEFAULT_MAX_WEIGHT);
 
     private final long maxWeight;
@@ -61,10 +67,11 @@ public final class StateMatcherCache {
             if (hit != null) return hit.matcher;
         }
 
-        // Build outside the lock: this can take ~2 ms at K=16/R=64.
         // Reject before building: a table that would be refused must not pay the preparation cost
-        // (K=16/R=64 takes ~2 ms). The distinct-ID scan stops at the table bound, so this is cheap.
+        // (K=16/R=64 extrapolates to a few ms). The distinct-ID scan is O(rules × ids) and stops
+        // at the largest compilable table, so this is cheap.
         int distinct = distinctIds(rules);
+        if (distinct > MAX_TABLE_IDS) return null; // the matcher itself would fall back
         if (distinct > ALWAYS_CACHE_MAX_IDS && tableBytes(distinct) > maxWeight / 8) return null;
 
         StateMatcher.PreparedMatcher built = StateMatcher.prepare(rules);
@@ -107,12 +114,13 @@ public final class StateMatcherCache {
     }
 
     /**
-     * Counts distinct condition IDs without building a table. Stops once the count exceeds the
-     * always-cache bound, which is enough to decide the admission policy.
+     * Counts distinct condition IDs without building a table, stopping once the count exceeds the
+     * largest table the matcher can compile. The scan is O(rules × ids) and lets the admission
+     * check reject an oversized table before paying the preparation cost.
      */
     private static int distinctIds(StateColorList rules) {
         int count = rules.size();
-        int[] seen = new int[ALWAYS_CACHE_MAX_IDS + 1];
+        int[] seen = new int[MAX_DISTINCT_SCAN];
         int distinct = 0;
         for (int i = 0; i < count; i++) {
             StateSpec spec = rules.specAt(i);
@@ -125,8 +133,7 @@ public final class StateMatcherCache {
                     if (seen[k] == id) { known = true; break; }
                 }
                 if (known) continue;
-                if (distinct == ALWAYS_CACHE_MAX_IDS) return distinct + 1; // over the bound
-                seen[distinct++] = id;
+                if (distinct == MAX_DISTINCT_SCAN - 1) return MAX_DISTINCT_SCAN; // over any table                seen[distinct++] = id;
             }
         }
         return distinct;
