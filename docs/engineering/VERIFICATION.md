@@ -166,9 +166,10 @@ dev.3 core JAR SHA-256 `51b17b45e0397b5b322b1382bb73e42bb7e7a91199e538eb79e31031
   模式待授权后执行；未跑通前不声称像素或设备行为结论。
 - 外部检索通道本轮不可用（Exa 返回 401）；上游引用（Go singleflight、Android Drawable 官方文档）均来自
   直接阅读，不称外部研究。
-- 既有限制（本轮只记录、未改）：`request` 只对 `RejectedExecutionException` 做回滚（`executorRefusal`
-  合同钉住）；执行器抛出其他 `RuntimeException` 时会带着已登记飞行与订阅者从 `request` 抛出，飞行留在
-  map 中直至被取消后放弃——属既有行为，公开错误语义不变，不在本轮扩大 catch。
+- 已修复（2026-11-05）：`request` 对执行器抛出的任何 `RuntimeException`（含 `RejectedExecutionException`）
+  与 `Error` 都会回滚飞行；`executorRefusal` 继续钉住 REE 路径，新增 `executorFailureIsNotARefusal`
+  钉住非 REE 路径（异常传播、`flights == 0`、`peek == null`、加入者收到失败）。默认 `contractTest`
+  109 项、`contractStress` 447,189 项通过；未修复版本在同一用例上失败（`flights=1`）。
 - 未验证：真机与硬件 Canvas 路径；R8 后行为；BIL 实际替换后的帧耗时（属 BIL 侧测量）。
 
 ## 二轮算法与默认检查精简，2026-11-04

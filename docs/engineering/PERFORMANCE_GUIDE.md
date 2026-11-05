@@ -25,7 +25,7 @@
 （它登记到飞行上、会逃逸），但不再创建 `unqueue`；`unqueue` 仅在真正启动一个飞行（或为它腾位而
 丢弃一个被放弃的飞行）时创建。`dropOneAbandoned` 随之改为返回被丢弃的飞行，由调用方按
 `task != null` 决定是否入队移除——原实现区分“丢弃了飞行”与“该飞行 task 尚未赋值”的语义保持不变。
-公开 API、回调时机、owner 线程归属、统计计数、取消与 `RejectedExecutionException` 回滚均不变
+公开 API、回调时机、owner 线程归属、统计计数与取消语义不变；`request` 的执行器失败回滚已扩大到非 REE 的 `RuntimeException`/`Error`（见 [FLIGHT_CACHE.md](FLIGHT_CACHE.md)）
 （`CoreContractTest` 20,405 项通过，含本轮新增的回归与异步准备示例合同）。
 
 结果（每调用分配字节数，7 轮中位数；确定性数值。由 `benchmark/FlightCacheAllocationProbe.java`

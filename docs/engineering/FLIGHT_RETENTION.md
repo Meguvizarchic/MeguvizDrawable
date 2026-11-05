@@ -90,8 +90,9 @@ ThreadPoolExecutor 会移除，自定义 executor 的队列本就在 cache 控�
    要完全断开需要 Ticket↔Sub 回引用，属后续可选增强，本轮不做。
 2. `close()` / `computeNow` 不清 `flight.task`；自定义 executor 队列里的已终止 task 仍捕获
    flight→cache，直到被执行或队列丢弃。ThreadPoolExecutor 由 `removeFromQueue` 处理。
-3. 自定义 Executor 抛非 `RejectedExecutionException` 仍会带着已登记飞行与订阅者从 `request` 抛出，
-   飞行留在 map 中直至被取消后放弃——既有行为，公开错误语义不变，本轮不扩大 catch。
+3. 自定义 Executor 抛非 `RejectedExecutionException` 的 `RuntimeException` 或 `Error` 时，飞行会被
+   完整回滚（与原拒绝路径同一逻辑），已加入的订阅者收到 `onFailed`，原异常从 `request` 抛出；不再
+   留下永不完成的死飞行（2026-11-05 修复）。
 4. `close()` 与已 drain 未 post 的投递之间仍有窄竞态：deliver 的 `closed` 判断覆盖 close 先于
    deliver 获取锁的情形；若 close 发生在 deliver 通过判断之后、回调之前，回调仍可能执行（与 HEAD
    相同的既有限制，未扩大）。
