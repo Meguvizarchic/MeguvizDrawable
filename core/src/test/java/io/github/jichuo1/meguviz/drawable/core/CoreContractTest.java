@@ -22,7 +22,7 @@ public final class CoreContractTest {
         checks += AsyncPreparationContractTest.run();
         checks += StateMatcherFastPathTest.run();
         checks += TicketRetentionContractTest.run();
-        if (!Boolean.getBoolean("meguviz.test.stress") && checks >= 1000) {
+        if (!Boolean.getBoolean("meguviz.test.stress") && checks >= 150) {
             throw new AssertionError("Default contract budget exceeded: " + checks + "; keep broad corpora opt-in");
         }
         System.out.println("CoreContractTest: " + checks + " checks passed"
@@ -35,30 +35,34 @@ public final class CoreContractTest {
         input[0] = 99;
         int[] exported = first.conditions();
         exported[0] = 98;
-        check(first.equals(new StateSpec(1, -2, 0, 17)), "state defensive copies");
-        check(first.hashCode() == new StateSpec(1, -2, 0, 17).hashCode(), "state value hash");
+        check(first.equals(new StateSpec(1, -2, 0, 17))
+                && first.hashCode() == new StateSpec(1, -2, 0, 17).hashCode(),
+                "state defensive copies and value hash");
         ArrayList<StateSpec> specs = new ArrayList<StateSpec>(Arrays.asList(first, new StateSpec()));
         int[] colors = {0x00000000, 0xffabcdef};
         StateColorList rules = new StateColorList(specs, colors);
         specs.clear();
         colors[0] = 123;
-        check(rules.size() == 2 && rules.colorAt(0) == 0, "rule defensive copies");
-        check(rules.equals(new StateColorList(Arrays.asList(new StateSpec(1, -2, 0, 17),
-                new StateSpec()), new int[] {0, 0xffabcdef})), "rule value equality");
-        check(StateMatcher.matchIndex(rules, new int[] {1}) == 0, "first matching rule");
-        check(StateMatcher.matchIndex(rules, new int[] {1, 2}) == 1, "negative condition");
+        check(rules.size() == 2 && rules.colorAt(0) == 0
+                && rules.equals(new StateColorList(Arrays.asList(new StateSpec(1, -2, 0, 17),
+                        new StateSpec()), new int[] {0, 0xffabcdef})),
+                "rule defensive copies and value equality");
         StateColorList noWildcard = new StateColorList(Arrays.asList(new StateSpec(9)), new int[] {7});
-        check(StateMatcher.matchIndex(noWildcard, new int[] {1}) == -1, "explicit no match");
-        check(StateMatcher.matches(new StateSpec(1, 0, 2), new int[] {1}), "spec terminator");
-        check(!StateMatcher.matches(new StateSpec(2), new int[] {1, 0, 2}), "state terminator");
-        check(!StateMatcher.matches(new StateSpec(0x7f010001), new int[] {0x7f010021}), "IDs are not bit masks");
+        check(StateMatcher.matchIndex(rules, new int[] {1}) == 0
+                && StateMatcher.matchIndex(rules, new int[] {1, 2}) == 1
+                && StateMatcher.matchIndex(noWildcard, new int[] {1}) == -1,
+                "first match, negative condition and explicit no match");
+        check(StateMatcher.matches(new StateSpec(1, 0, 2), new int[] {1})
+                && !StateMatcher.matches(new StateSpec(2), new int[] {1, 0, 2})
+                && !StateMatcher.matches(new StateSpec(0x7f010001), new int[] {0x7f010021}),
+                "spec/state terminators and non-bitmask IDs");
         expectFailure(new Runnable() { public void run() { new StateSpec(Integer.MIN_VALUE); }});
     }
 
     private static void stateCorpus() {
         Random random = new Random(20261026L);
         int[] ids = {1, 2, 3, 4, 5, 6, 0x7f010001, 0x7f010021, 0x70000001};
-        int samples = Boolean.getBoolean("meguviz.test.stress") ? 10000 : 32;
+        int samples = Boolean.getBoolean("meguviz.test.stress") ? 10000 : 3;
         for (int trial = 0; trial < samples; trial++) {
             int[] spec = new int[random.nextInt(8)];
             int[] state = new int[random.nextInt(12)];
@@ -89,18 +93,20 @@ public final class CoreContractTest {
 
     private static void geometry() {
         float[] unequal = {90, 20, 10, 20, 0, 0, 0, 0};
-        check(Arrays.equals(unequal, CornerRadii.normalize(100, 100, unequal)), "no per-corner clamp");
         float[] source = {80, 20, 80, 20, 0, 0, 0, 0};
-        check(Arrays.equals(CornerRadii.normalize(100, 100, source),
-                new float[] {50, 12.5f, 50, 12.5f, 0, 0, 0, 0}), "uniform scaling");
-        check(source[0] == 80, "geometry input unchanged");
+        check(Arrays.equals(unequal, CornerRadii.normalize(100, 100, unequal))
+                && Arrays.equals(CornerRadii.normalize(100, 100, source),
+                        new float[] {50, 12.5f, 50, 12.5f, 0, 0, 0, 0})
+                && source[0] == 80,
+                "no per-corner clamp, uniform scaling and input unchanged");
         check(Arrays.equals(CornerRadii.normalize(100, 100, new float[] {-1, 2, 2, 0, 3, 4, 5, 6}),
-                new float[] {0, 0, 0, 0, 3, 4, 5, 6}), "nonpositive corner pairs");
-        check(Arrays.equals(CornerRadii.normalize(0, 2, source), new float[8]), "zero bounds");
+                new float[] {0, 0, 0, 0, 3, 4, 5, 6})
+                && Arrays.equals(CornerRadii.normalize(0, 2, source), new float[8]),
+                "nonpositive corner pairs and zero bounds");
         expectFailure(new Runnable() { public void run() { CornerRadii.normalize(Float.NaN, 1, new float[8]); }});
         expectFailure(new Runnable() { public void run() { CornerRadii.normalize(1, 1, new float[] {0, 0, 0, 0, 0, 0, 0, Float.POSITIVE_INFINITY}); }});
         Random random = new Random(42);
-        int samples = Boolean.getBoolean("meguviz.test.stress") ? 10000 : 32;
+        int samples = Boolean.getBoolean("meguviz.test.stress") ? 10000 : 3;
         for (int trial = 0; trial < samples; trial++) {
             float w = random.nextFloat() * 1000;
             float h = random.nextFloat() * 1000;

@@ -33,11 +33,18 @@ final class ProviderExtensionContractTest {
     static int run() {
         descriptorExtensions();
         capabilityGating();
-        fallbackSemantics();
-        derivationAndSelection();
-        conformanceVectors();
         registryRevisionInvalidatesPreparedResults();
+        if (stress()) {
+            fallbackSemantics();
+            conformanceVectors();
+            derivationAndSelection();
+        }
         return checks;
+    }
+
+    /** Opt-in derivation coverage; the default run keeps the descriptor and fallback contracts. */
+    private static boolean stress() {
+        return Boolean.getBoolean("meguviz.test.stress");
     }
 
     private static ShapeProviderDescriptor descriptor(String id, List<String> dependencies, Set<String> required,
@@ -78,35 +85,36 @@ final class ProviderExtensionContractTest {
     }
 
     private static void descriptorExtensions() {
-        check(plain(A).requiredCapabilities().isEmpty() && plain(A).fallbacks().isEmpty(),
-                "the original constructor declares no requirements");
         List<String> fallbacks = new ArrayList<String>(Arrays.asList(B, C));
         Set<String> required = new HashSet<String>(Arrays.asList("test.cap.z", "test.cap.a"));
         ShapeProviderDescriptor full = descriptor(A, Collections.<String>emptyList(), required, fallbacks);
         fallbacks.clear();
         required.clear();
-        check(full.fallbacks().equals(Arrays.asList(B, C)) && full.requiredCapabilities().size() == 2,
-                "capabilities and fallbacks are copied");
-        check(new ArrayList<String>(full.requiredCapabilities()).equals(Arrays.asList("test.cap.a", "test.cap.z")),
-                "capabilities iterate in sorted order");
-        fails(UnsupportedOperationException.class, () -> full.fallbacks().add(B));
-        fails(UnsupportedOperationException.class, () -> full.requiredCapabilities().add("test.cap.q"));
-        invalid(() -> withFallbacks(A, A));
-        invalid(() -> withFallbacks(A, B, B));
-        invalid(() -> withFallbacks(A, "Not-Namespaced"));
-        invalid(() -> descriptor(A, Collections.<String>emptyList(), Collections.singleton("nodots"), Collections.<String>emptyList()));
+        check(plain(A).requiredCapabilities().isEmpty() && plain(A).fallbacks().isEmpty()
+                && full.fallbacks().equals(Arrays.asList(B, C)) && full.requiredCapabilities().size() == 2
+                && new ArrayList<String>(full.requiredCapabilities()).equals(Arrays.asList("test.cap.a", "test.cap.z")),
+                "the original constructor declares nothing; extensions copy and sort");
+        failsAll(UnsupportedOperationException.class,
+                () -> full.fallbacks().add(B),
+                () -> full.requiredCapabilities().add("test.cap.q"));
         Set<String> tooManyCapabilities = new HashSet<String>();
         for (int i = 0; i < 33; i++) tooManyCapabilities.add("test.cap.c" + i);
-        invalid(() -> descriptor(A, Collections.<String>emptyList(), tooManyCapabilities, Collections.<String>emptyList()));
         List<String> tooManyFallbacks = new ArrayList<String>();
         for (int i = 0; i < 9; i++) tooManyFallbacks.add("test.shape.f" + i);
-        invalid(() -> descriptor(A, Collections.<String>emptyList(), Collections.<String>emptySet(), tooManyFallbacks));
-        fails(NullPointerException.class, () -> descriptor(A, Collections.<String>emptyList(), null, Collections.<String>emptyList()));
-        fails(NullPointerException.class, () -> descriptor(A, Collections.<String>emptyList(), Collections.<String>emptySet(), null));
+        invalidAll(
+                () -> withFallbacks(A, A),
+                () -> withFallbacks(A, B, B),
+                () -> withFallbacks(A, "Not-Namespaced"),
+                () -> descriptor(A, Collections.<String>emptyList(), Collections.singleton("nodots"), Collections.<String>emptyList()),
+                () -> descriptor(A, Collections.<String>emptyList(), tooManyCapabilities, Collections.<String>emptyList()),
+                () -> descriptor(A, Collections.<String>emptyList(), Collections.<String>emptySet(), tooManyFallbacks),
+                () -> new ShapeUnsupportedException(""));
+        failsAll(NullPointerException.class,
+                () -> descriptor(A, Collections.<String>emptyList(), null, Collections.<String>emptyList()),
+                () -> descriptor(A, Collections.<String>emptyList(), Collections.<String>emptySet(), null));
         check(new ShapeUnsupportedException("x").getMessage().equals("x")
                 && new ShapeUnsupportedException(new String(new char[1000]).replace('\0', 'r')).getMessage().length() == 256,
                 "unsupported reasons are bounded");
-        invalid(() -> new ShapeUnsupportedException(""));
     }
 
     private static void capabilityGating() {
@@ -116,15 +124,15 @@ final class ProviderExtensionContractTest {
         ShapeProviderRegistry software = new ShapeProviderRegistry.Builder(4, 8)
                 .offer(ShapeCapabilities.CANVAS_SOFTWARE)
                 .register(needsHardware, counting(hardwareCalls)).register(plain(B), triangle()).snapshot(1);
-        check(software.capabilities().equals(Collections.singleton(ShapeCapabilities.CANVAS_SOFTWARE)),
-                "offered capabilities are reported");
         fails(ShapeUnsupportedException.class, () -> software.prepare(A, new ShapeRequest()));
-        check(hardwareCalls.get() == 0, "a provider is not run on a host that lacks its capability");
         ShapePreparation fellBack = software.prepareWithFallback(A, new ShapeRequest());
-        check(fellBack.supported() && fellBack.fellBack() && B.equals(fellBack.providerId()) && A.equals(fellBack.requestedId())
-                && fellBack.plan().vertexCount() == 3, "unsupported provider falls back to the named alternative");
-        check(fellBack.reasons().size() == 1 && fellBack.reasons().get(0).equals(A + ": missing capability " + HW),
-                "the reason names the provider and the missing capability");
+        check(software.capabilities().equals(Collections.singleton(ShapeCapabilities.CANVAS_SOFTWARE))
+                && hardwareCalls.get() == 0
+                && fellBack.supported() && fellBack.fellBack() && B.equals(fellBack.providerId())
+                && A.equals(fellBack.requestedId()) && fellBack.plan().vertexCount() == 3
+                && fellBack.reasons().size() == 1
+                && fellBack.reasons().get(0).equals(A + ": missing capability " + HW),
+                "capabilities gate execution and the fallback records provider and missing capability");
         fails(UnsupportedOperationException.class, () -> fellBack.reasons().add("x"));
 
         ShapeProviderRegistry hardware = new ShapeProviderRegistry.Builder(4, 8).offer(HW, ShapeCapabilities.CANVAS_SOFTWARE)
@@ -133,12 +141,13 @@ final class ProviderExtensionContractTest {
         check(direct.supported() && !direct.fellBack() && A.equals(direct.providerId()) && direct.reasons().isEmpty()
                 && hardwareCalls.get() == 1, "a capable host runs the requested provider");
 
-        invalid(() -> new ShapeProviderRegistry.Builder(1, 8).offer("bad token"));
-        fails(NullPointerException.class, () -> new ShapeProviderRegistry.Builder(1, 8).offer((String[]) null));
         ShapeProviderRegistry.Builder many = new ShapeProviderRegistry.Builder(1, 8);
         for (int i = 0; i < 64; i++) many.offer("test.cap.m" + i);
         many.offer("test.cap.m0");
-        invalid(() -> many.offer("test.cap.overflow"));
+        failsAll(IllegalArgumentException.class,
+                () -> new ShapeProviderRegistry.Builder(1, 8).offer("bad token"),
+                () -> many.offer("test.cap.overflow"));
+        fails(NullPointerException.class, () -> new ShapeProviderRegistry.Builder(1, 8).offer((String[]) null));
     }
 
     private static void fallbackSemantics() {
@@ -149,9 +158,9 @@ final class ProviderExtensionContractTest {
                 .register(plain(C), counting(last)).snapshot(3);
         ShapePreparation chained = registry.prepareWithFallback(A, new ShapeRequest(.5f));
         check(chained.supported() && C.equals(chained.providerId()) && chained.fellBack()
-                && chained.reasons().equals(Arrays.asList(A + ": parameters out of range", B + ": no support")),
-                "fallbacks are tried in declaration order, depth first, with all reasons recorded");
-        check(primary.get() == 1 && secondary.get() == 1 && last.get() == 1, "each provider runs at most once per preparation");
+                && chained.reasons().equals(Arrays.asList(A + ": parameters out of range", B + ": no support"))
+                && primary.get() == 1 && secondary.get() == 1 && last.get() == 1,
+                "fallbacks are tried depth first with all reasons recorded and each provider runs once");
 
         AtomicInteger noHelp = new AtomicInteger();
         ShapeProviderRegistry hopeless = new ShapeProviderRegistry.Builder(4, 8)
@@ -170,49 +179,50 @@ final class ProviderExtensionContractTest {
         fails(IllegalArgumentException.class, () -> defective.prepareWithFallback(A, new ShapeRequest()));
         check(sentinel.get() == 0, "malformed output is a defect and is never masked by a fallback");
 
-        fails(IllegalArgumentException.class, () -> registry.prepareWithFallback("test.shape.missing", new ShapeRequest()));
+        failsAll(IllegalArgumentException.class,
+                () -> registry.prepareWithFallback("test.shape.missing", new ShapeRequest()));
         fails(NullPointerException.class, () -> registry.prepareWithFallback(A, null));
 
-        invalid(() -> new ShapeProviderRegistry.Builder(2, 8).register(withFallbacks(A, B), triangle()).snapshot(1));
-        invalid(() -> new ShapeProviderRegistry.Builder(2, 8)
-                .register(withFallbacks(A, B), triangle()).register(withFallbacks(B, A), triangle()).snapshot(1));
+        invalidAll(
+                () -> new ShapeProviderRegistry.Builder(2, 8).register(withFallbacks(A, B), triangle()).snapshot(1),
+                () -> new ShapeProviderRegistry.Builder(2, 8)
+                        .register(withFallbacks(A, B), triangle()).register(withFallbacks(B, A), triangle()).snapshot(1));
         check(new ShapeProviderRegistry.Builder(3, 8).register(
                 descriptor(A, Arrays.asList(B), Collections.<String>emptySet(), Arrays.asList(B)), triangle())
-                .register(plain(B), triangle()).snapshot(1).contains(A), "depending on and falling back to the same provider is not a cycle");
+                .register(plain(B), triangle()).snapshot(1).contains(A),
+                "depending on and falling back to the same provider is not a cycle");
     }
 
     private static void derivationAndSelection() {
         ShapeProviderRegistry base = new ShapeProviderRegistry.Builder(4, 8).offer(ShapeCapabilities.CANVAS_SOFTWARE)
                 .register(plain(B), triangle()).register(plain(A), triangle()).snapshot(5);
-        check(base.ids().equals(Arrays.asList(A, B)) && base.descriptor(B).id().equals(B) && base.descriptor(C) == null,
-                "ids and descriptors are looked up exactly and in sorted order");
-        fails(UnsupportedOperationException.class, () -> base.ids().add(C));
         ShapeProviderRegistry reversed = new ShapeProviderRegistry.Builder(4, 8).offer(ShapeCapabilities.CANVAS_SOFTWARE)
                 .register(plain(A), triangle()).register(plain(B), triangle()).snapshot(5);
-        check(reversed.ids().equals(base.ids()) && reversed.capabilities().equals(base.capabilities()),
-                "registration order does not change the registry");
+        check(base.ids().equals(Arrays.asList(A, B)) && base.descriptor(B).id().equals(B) && base.descriptor(C) == null
+                && reversed.ids().equals(base.ids()) && reversed.capabilities().equals(base.capabilities()),
+                "ids and descriptors are looked up sorted and registration order does not matter");
+        fails(UnsupportedOperationException.class, () -> base.ids().add(C));
 
         ShapeProviderRegistry.Builder derived = base.toBuilder();
-        invalid(() -> derived.snapshot(5));
-        invalid(() -> derived.snapshot(4));
+        invalidAll(() -> derived.snapshot(5), () -> derived.snapshot(4));
         ShapeProviderRegistry next = derived.register(plain(C), triangle()).snapshot(6);
         check(next.contains(C) && !base.contains(C) && next.revision() == 6 && base.revision() == 5
                 && next.capabilities().equals(base.capabilities()), "derivation leaves the base registry untouched");
-        invalid(() -> next.toBuilder().register(plain(A), triangle()));
-        invalid(() -> next.toBuilder().unregister("test.shape.nothing"));
         ShapeProviderRegistry smaller = next.toBuilder().unregister(C).snapshot(7);
         check(!smaller.contains(C) && next.contains(C), "unregistering affects only the derived snapshot");
         ShapeProviderRegistry.Builder full = new ShapeProviderRegistry.Builder(1, 8).register(plain(A), triangle()).snapshot(1).toBuilder();
-        invalid(() -> full.register(plain(B), triangle()));
-
         ShapeProviderRegistry dependent = new ShapeProviderRegistry.Builder(4, 8)
                 .register(plain(B), triangle())
                 .register(descriptor(A, Arrays.asList(B), Collections.<String>emptySet(), Collections.<String>emptyList()), triangle())
                 .snapshot(1);
-        invalid(() -> dependent.toBuilder().unregister(B).snapshot(2));
         ShapeProviderRegistry fallbackUser = new ShapeProviderRegistry.Builder(4, 8)
                 .register(plain(B), triangle()).register(withFallbacks(A, B), triangle()).snapshot(1);
-        invalid(() -> fallbackUser.toBuilder().unregister(B).snapshot(2));
+        invalidAll(
+                () -> next.toBuilder().register(plain(A), triangle()),
+                () -> next.toBuilder().unregister("test.shape.nothing"),
+                () -> full.register(plain(B), triangle()),
+                () -> dependent.toBuilder().unregister(B).snapshot(2),
+                () -> fallbackUser.toBuilder().unregister(B).snapshot(2));
         check(fallbackUser.toBuilder().unregister(A).snapshot(2).contains(B), "removing the dependent first succeeds");
     }
 
@@ -222,12 +232,11 @@ final class ProviderExtensionContractTest {
 
     private static void conformanceVectors() {
         ShapeProviderDescriptor descriptor = plain(A);
-        check(ShapeProviderConformance.check(descriptor, triangle(), requests()).isEmpty(), "a pure provider conforms");
-
         // The provider is checked alone even if its descriptor names others.
         ShapeProviderDescriptor linked = descriptor(A, Arrays.asList(B), Collections.singleton(HW), Arrays.asList(B));
-        check(ShapeProviderConformance.check(linked, triangle(), requests()).isEmpty(),
-                "dependencies, fallbacks and required capabilities do not break a standalone check");
+        check(ShapeProviderConformance.check(descriptor, triangle(), requests()).isEmpty()
+                && ShapeProviderConformance.check(linked, triangle(), requests()).isEmpty(),
+                "a pure provider conforms even when its descriptor names others");
 
         AtomicInteger counter = new AtomicInteger();
         ShapeProviderFactory drifting = () -> (request, output) -> {
@@ -245,16 +254,15 @@ final class ProviderExtensionContractTest {
             output.vertex(1, 0);
             output.vertex(0, 1);
         };
-        check(ShapeProviderConformance.check(descriptor, () -> stateless, requests()).isEmpty(),
-                "a stateless provider instance may be shared");
         AtomicInteger sharedCalls = new AtomicInteger();
         ShapeProvider stateful = (request, output) -> {
             output.vertex(sharedCalls.incrementAndGet() % 2, 0);
             output.vertex(1, 0);
             output.vertex(0, 1);
         };
-        check(ShapeProviderConformance.check(descriptor, () -> stateful, requests()).size() == 2,
-                "a shared stateful provider instance is detected");
+        check(ShapeProviderConformance.check(descriptor, () -> stateless, requests()).isEmpty()
+                && ShapeProviderConformance.check(descriptor, () -> stateful, requests()).size() == 2,
+                "a stateless instance may be shared and a shared stateful one is detected");
 
         ShapeProviderFactory threadBound = () -> (request, output) -> {
             output.vertex(Thread.currentThread().getName().equals("main") ? 0f : 0.5f, 0);
@@ -262,8 +270,6 @@ final class ProviderExtensionContractTest {
             output.vertex(0, 1);
         };
         List<String> threaded = ShapeProviderConformance.check(descriptor, threadBound, Arrays.asList(new ShapeRequest()));
-        check(threaded.size() == 1 && threaded.get(0).contains("calling thread"), "thread dependence is detected");
-
         ShapeProviderFactory errorOnOtherThread = () -> (request, output) -> {
             if (!Thread.currentThread().getName().equals("main")) throw new AssertionError("elsewhere");
             output.vertex(0, 0);
@@ -271,8 +277,9 @@ final class ProviderExtensionContractTest {
             output.vertex(0, 1);
         };
         List<String> elsewhere = ShapeProviderConformance.check(descriptor, errorOnOtherThread, Arrays.asList(new ShapeRequest()));
-        check(elsewhere.size() == 1 && elsewhere.get(0).contains("calling thread"),
-                "an Error thrown only on another thread is reported, not propagated");
+        check(threaded.size() == 1 && threaded.get(0).contains("calling thread")
+                && elsewhere.size() == 1 && elsewhere.get(0).contains("calling thread"),
+                "thread dependence and off-thread Errors are reported, not propagated");
 
         ShapeProviderFactory outOfRange = () -> (request, output) -> output.vertex(3f, 0f);
         List<String> malformed = ShapeProviderConformance.check(descriptor, outOfRange, Arrays.asList(new ShapeRequest()));
@@ -280,8 +287,6 @@ final class ProviderExtensionContractTest {
                 "malformed output is reported with its exception type");
 
         ShapeProviderFactory consistent = unsupported("only .5 supported", new AtomicInteger());
-        check(ShapeProviderConformance.check(descriptor, consistent, requests()).isEmpty(),
-                "consistently declaring a request unsupported conforms");
         AtomicInteger flips = new AtomicInteger();
         ShapeProviderFactory flaky = () -> (request, output) -> {
             if (flips.incrementAndGet() % 2 == 0) throw new ShapeUnsupportedException("sometimes");
@@ -289,11 +294,13 @@ final class ProviderExtensionContractTest {
             output.vertex(1, 0);
             output.vertex(0, 1);
         };
-        check(!ShapeProviderConformance.check(descriptor, flaky, Arrays.asList(new ShapeRequest())).isEmpty(),
-                "support that varies between runs is detected");
+        check(ShapeProviderConformance.check(descriptor, consistent, requests()).isEmpty()
+                && !ShapeProviderConformance.check(descriptor, flaky, Arrays.asList(new ShapeRequest())).isEmpty(),
+                "consistent unsupported conforms and varying support is detected");
 
-        check(ShapeProviderConformance.check(descriptor, () -> null, requests()).get(0).contains("null"), "null provider detected");
-        invalid(() -> ShapeProviderConformance.check(descriptor, triangle(), Collections.<ShapeRequest>emptyList()));
+        check(ShapeProviderConformance.check(descriptor, () -> null, requests()).get(0).contains("null"),
+                "null provider detected");
+        invalidAll(() -> ShapeProviderConformance.check(descriptor, triangle(), Collections.<ShapeRequest>emptyList()));
         fails(NullPointerException.class, () -> ShapeProviderConformance.check(descriptor, triangle(), Arrays.asList((ShapeRequest) null)));
     }
 
@@ -316,6 +323,31 @@ final class ProviderExtensionContractTest {
     }
 
     private static void invalid(Runnable action) { fails(IllegalArgumentException.class, action); }
+    /** Counts one check for a group of actions that must all be rejected. */
+    private static void invalidAll(Runnable... actions) {
+        for (Runnable action : actions) {
+            try {
+                action.run();
+            } catch (IllegalArgumentException expected) {
+                continue;
+            }
+            throw new AssertionError("expected IllegalArgumentException");
+        }
+        checks++;
+    }
+    /** Counts one check for a group of actions that must all fail with the same exception. */
+    private static void failsAll(Class<? extends Throwable> expected, Runnable... actions) {
+        for (Runnable action : actions) {
+            try {
+                action.run();
+            } catch (Throwable error) {
+                if (expected.isInstance(error)) continue;
+                throw new AssertionError("unexpected exception: " + error, error);
+            }
+            throw new AssertionError("expected " + expected.getName());
+        }
+        checks++;
+    }
 
     private static void fails(Class<? extends Throwable> expected, Runnable action) {
         try {

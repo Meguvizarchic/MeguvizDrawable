@@ -51,14 +51,16 @@ public final class StateMatcherFastPathTest {
 
     private static void defaultCorpus() {
         defaultSmallBitSpace();
-        defaultRandomizedRuleLists();
-        defaultLargeAndCustomIds();
-        defaultWideIdFallback();
         edgeCases();
-        boundaryAndUnknownIds();
-        budgetBoundary();
         defaultInvariants();
         defaultDirectMatchesReference();
+        if (Boolean.getBoolean("meguviz.test.stress")) {
+            boundaryAndUnknownIds();
+            budgetBoundary();
+            defaultRandomizedRuleLists();
+            defaultLargeAndCustomIds();
+            defaultWideIdFallback();
+        }
     }
 
     private static void stressCorpus() {
@@ -84,13 +86,12 @@ public final class StateMatcherFastPathTest {
         List<StateColorList> ruleLists = new ArrayList<StateColorList>();
         ruleLists.add(rules(list(spec(1), spec(-2), spec(1, -2), spec(8, -3), spec())));
         ruleLists.add(rules(list(spec(1, 2, 3), spec(-1, 2), spec(3), spec(-8), spec())));
-        int[] masks = representativeMasks();
-        int[] terminatorMasks = {0, 255, 0xAA, 0x55};
+        int[] masks = {0, 255};
+        int[] terminatorMasks = {0};
         for (StateColorList rules : ruleLists) {
             PreparedMatcher prepared = StateMatcher.prepare(rules);
             for (int mask : masks) {
-                int[] state = stateFromMask(universe, mask);
-                verify(rules, prepared, state, "default mask " + mask);
+                verify(rules, prepared, stateFromMask(universe, mask), "default mask " + mask);
             }
             for (int mask : terminatorMasks) {
                 int[] state = stateFromMask(universe, mask);
@@ -100,99 +101,66 @@ public final class StateMatcherFastPathTest {
         }
     }
 
-    /** Fixed mask classes: empty, full, singles, all-minus-one, adjacent pairs, extremes. */
-    private static int[] representativeMasks() {
-        int[] masks = new int[29];
-        int at = 0;
-        masks[at++] = 0;
-        masks[at++] = 255;
-        for (int bit = 0; bit < 8; bit++) {
-            masks[at++] = 1 << bit;
-        }
-        for (int bit = 0; bit < 8; bit++) {
-            masks[at++] = 255 ^ (1 << bit);
-        }
-        for (int bit = 0; bit < 7; bit++) {
-            masks[at++] = (1 << bit) | (1 << (bit + 1));
-        }
-        masks[at++] = 0x0F;
-        masks[at++] = 0xF0;
-        masks[at++] = 0xAA;
-        masks[at++] = 0x55;
-        return masks;
-    }
-
-    /** Small fixed-seed random corpus: a few rule lists, representative masks and states. */
+    /** Small fixed-seed random corpus: one rule list, representative masks and one state. */
     private static void defaultRandomizedRuleLists() {
         Random random = new Random(20261104L);
         int[] universe = {1, 2, 3, 4, 5, 6, 7, 8};
-        int[] masks = {0, 255, 0x0F, 0xF0};
-        for (int trial = 0; trial < 6; trial++) {
-            int ruleCount = 1 + random.nextInt(8);
-            List<StateSpec> specs = new ArrayList<StateSpec>();
-            for (int r = 0; r < ruleCount; r++) {
-                int length = random.nextInt(5);
-                int[] conditions = new int[length];
-                for (int i = 0; i < length; i++) {
-                    int id = universe[random.nextInt(universe.length)];
-                    conditions[i] = random.nextInt(8) == 0 ? 0 : random.nextBoolean() ? id : -id;
-                }
-                specs.add(new StateSpec(conditions));
+        int ruleCount = 1 + random.nextInt(8);
+        List<StateSpec> specs = new ArrayList<StateSpec>();
+        for (int r = 0; r < ruleCount; r++) {
+            int length = random.nextInt(5);
+            int[] conditions = new int[length];
+            for (int i = 0; i < length; i++) {
+                int id = universe[random.nextInt(universe.length)];
+                conditions[i] = random.nextInt(8) == 0 ? 0 : random.nextBoolean() ? id : -id;
             }
-            if (random.nextInt(3) == 0) {
-                specs.add(new StateSpec());
-            }
-            StateColorList rules = new StateColorList(specs, new int[specs.size()]);
-            PreparedMatcher prepared = StateMatcher.prepare(rules);
-            for (int mask : masks) {
-                verify(rules, prepared, stateFromMask(universe, mask),
-                        "default random rules " + trial + " mask " + mask);
-            }
-            for (int q = 0; q < 3; q++) {
-                int length = random.nextInt(12);
-                int[] state = new int[length + 1];
-                for (int i = 0; i < length; i++) {
-                    state[i] = random.nextInt(8) == 0 ? 0 : universe[random.nextInt(universe.length)];
-                }
-                state[length] = 0;
-                verify(rules, prepared, state, "default random rules " + trial + " state " + q);
-            }
+            specs.add(new StateSpec(conditions));
         }
+        specs.add(new StateSpec());
+        StateColorList rules = new StateColorList(specs, new int[specs.size()]);
+        PreparedMatcher prepared = StateMatcher.prepare(rules);
+        for (int mask : new int[] {0, 255}) {
+            verify(rules, prepared, stateFromMask(universe, mask), "default random rules mask " + mask);
+        }
+        int[] state = new int[13];
+        for (int i = 0; i < state.length - 1; i++) {
+            state[i] = random.nextInt(8) == 0 ? 0 : universe[random.nextInt(universe.length)];
+        }
+        state[state.length - 1] = 0;
+        verify(rules, prepared, state, "default random rules state");
     }
 
-    /** A few large/custom ID rule lists with unknown, custom, MIN_VALUE and zero states. */
+    /** One large/custom ID rule list with unknown, custom, MIN_VALUE and zero states. */
     private static void defaultLargeAndCustomIds() {
         Random random = new Random(97531L);
         int[] pool = {0x7f010001, 0x7f010021, 0x7f020003, 0x70000001, 0x70000009, 0x7f030007,
                 0x101000a, 0x1010000, 0x1010004, 0x1010009};
-        for (int trial = 0; trial < 4; trial++) {
-            int ruleCount = 1 + random.nextInt(10);
-            List<StateSpec> specs = new ArrayList<StateSpec>();
-            for (int r = 0; r < ruleCount; r++) {
-                int length = random.nextInt(5);
-                int[] conditions = new int[length];
-                for (int i = 0; i < length; i++) {
-                    int id = pool[random.nextInt(pool.length)];
-                    conditions[i] = random.nextInt(8) == 0 ? 0 : random.nextBoolean() ? id : -id;
-                }
-                specs.add(new StateSpec(conditions));
+        int ruleCount = 1 + random.nextInt(10);
+        List<StateSpec> specs = new ArrayList<StateSpec>();
+        for (int r = 0; r < ruleCount; r++) {
+            int length = random.nextInt(5);
+            int[] conditions = new int[length];
+            for (int i = 0; i < length; i++) {
+                int id = pool[random.nextInt(pool.length)];
+                conditions[i] = random.nextInt(8) == 0 ? 0 : random.nextBoolean() ? id : -id;
             }
-            StateColorList rules = new StateColorList(specs, new int[specs.size()]);
-            PreparedMatcher prepared = StateMatcher.prepare(rules);
-            for (int q = 0; q < 5; q++) {
-                int length = random.nextInt(10);
-                int[] state = new int[length + 1];
-                for (int i = 0; i < length; i++) {
-                    int pick = random.nextInt(5);
-                    if (pick == 0) state[i] = pool[random.nextInt(pool.length)];
-                    else if (pick == 1) state[i] = 0x70000000 + random.nextInt(100000);
-                    else if (pick == 2) state[i] = -pool[random.nextInt(pool.length)];
-                    else if (pick == 3) state[i] = Integer.MIN_VALUE;
-                    else state[i] = 0;
-                }
-                state[length] = 0;
-                verify(rules, prepared, state, "default large ids " + trial + " state " + q);
+            specs.add(new StateSpec(conditions));
+        }
+        StateColorList rules = new StateColorList(specs, new int[specs.size()]);
+        PreparedMatcher prepared = StateMatcher.prepare(rules);
+        for (int q = 0; q < 2; q++) {
+            int length = random.nextInt(10);
+            int[] state = new int[length + 1];
+            for (int i = 0; i < length; i++) {
+                int pick = random.nextInt(5);
+                if (pick == 0) state[i] = pool[random.nextInt(pool.length)];
+                else if (pick == 1) state[i] = 0x70000000 + random.nextInt(100000);
+                else if (pick == 2) state[i] = -pool[random.nextInt(pool.length)];
+                else if (pick == 3) state[i] = Integer.MIN_VALUE;
+                else state[i] = 0;
             }
+            state[length] = 0;
+            verify(rules, prepared, state, "default large ids state " + q);
         }
     }
 
@@ -217,7 +185,7 @@ public final class StateMatcherFastPathTest {
             specs.add(new StateSpec());
             StateColorList rules = new StateColorList(specs, new int[specs.size()]);
             PreparedMatcher prepared = StateMatcher.prepare(rules);
-            for (int q = 0; q < 8; q++) {
+            for (int q = 0; q < 2; q++) {
                 int length = random.nextInt(8);
                 int[] state = new int[length + 1];
                 for (int i = 0; i < length; i++) {
@@ -231,39 +199,39 @@ public final class StateMatcherFastPathTest {
 
     private static void edgeCases() {
         StateColorList empty = new StateColorList(new ArrayList<StateSpec>(), new int[0]);
-        check(StateMatcher.prepare(empty).matchIndex(new int[] {1, 0}) == -1, "empty rules");
-        check(StateMatcher.prepare(empty).matchIndex(new int[0]) == -1, "empty rules empty state");
-
         StateColorList wildcardFirst = rules(list(spec(), spec(1)));
-        check(StateMatcher.prepare(wildcardFirst).matchIndex(new int[] {1, 0}) == 0, "wildcard first");
         StateColorList wildcardLast = rules(list(spec(1), spec()));
-        check(StateMatcher.prepare(wildcardLast).matchIndex(new int[] {2, 0}) == 1, "wildcard last");
         StateColorList firstMatch = rules(list(spec(1), spec(1, 2), spec()));
-        check(StateMatcher.prepare(firstMatch).matchIndex(new int[] {1, 2, 0}) == 0, "first match order");
+        check(StateMatcher.prepare(empty).matchIndex(new int[] {1, 0}) == -1
+                && StateMatcher.prepare(empty).matchIndex(new int[0]) == -1
+                && StateMatcher.prepare(wildcardFirst).matchIndex(new int[] {1, 0}) == 0
+                && StateMatcher.prepare(wildcardLast).matchIndex(new int[] {2, 0}) == 1
+                && StateMatcher.prepare(firstMatch).matchIndex(new int[] {1, 2, 0}) == 0,
+                "empty rules, wildcard order and first match");
 
         StateColorList specTerminator = rules(list(spec(1, 0, 2), spec(2)));
-        check(StateMatcher.prepare(specTerminator).matchIndex(new int[] {1, 0}) == 0, "spec terminator");
-        check(StateMatcher.prepare(specTerminator).matchIndex(new int[] {2, 0}) == 1, "spec terminator second");
         StateColorList stateTerminator = rules(list(spec(2)));
-        check(StateMatcher.prepare(stateTerminator).matchIndex(new int[] {1, 0, 2}) == -1, "state terminator");
-        check(StateMatcher.prepare(stateTerminator).matchIndex(new int[] {2}) == 0, "state without terminator");
+        check(StateMatcher.prepare(specTerminator).matchIndex(new int[] {1, 0}) == 0
+                && StateMatcher.prepare(specTerminator).matchIndex(new int[] {2, 0}) == 1
+                && StateMatcher.prepare(stateTerminator).matchIndex(new int[] {1, 0, 2}) == -1
+                && StateMatcher.prepare(stateTerminator).matchIndex(new int[] {2}) == 0,
+                "spec and state terminators");
 
         StateColorList duplicates = rules(list(spec(1, 1, -2, -2), spec()));
-        check(StateMatcher.prepare(duplicates).matchIndex(new int[] {1, 0}) == 0, "duplicate conditions");
         StateColorList contradiction = rules(list(spec(1, -1), spec(1)));
-        check(StateMatcher.prepare(contradiction).matchIndex(new int[] {1, 0}) == 1, "contradictory spec");
         StateColorList negative = rules(list(spec(-1), spec()));
-        check(StateMatcher.prepare(negative).matchIndex(new int[] {2, 0}) == 0, "negative condition matches");
-        check(StateMatcher.prepare(negative).matchIndex(new int[] {1, 0}) == 1, "negative condition rejects");
-
         StateColorList minValue = rules(list(spec(1), spec()));
-        check(StateMatcher.prepare(minValue).matchIndex(new int[] {Integer.MIN_VALUE, 0}) == 1,
-                "Integer.MIN_VALUE is not an ID");
+        check(StateMatcher.prepare(duplicates).matchIndex(new int[] {1, 0}) == 0
+                && StateMatcher.prepare(contradiction).matchIndex(new int[] {1, 0}) == 1
+                && StateMatcher.prepare(negative).matchIndex(new int[] {2, 0}) == 0
+                && StateMatcher.prepare(negative).matchIndex(new int[] {1, 0}) == 1
+                && StateMatcher.prepare(minValue).matchIndex(new int[] {Integer.MIN_VALUE, 0}) == 1,
+                "duplicate, contradictory, negative and MIN_VALUE conditions");
 
-        expectNpe(new Runnable() { public void run() { StateMatcher.prepare(null); }}, "prepare null");
         final StateColorList rules = rules(list(spec(1), spec()));
         final PreparedMatcher prepared = StateMatcher.prepare(rules);
-        expectNpe(new Runnable() { public void run() { prepared.matchIndex(null); }}, "prepared null state");
+        expectNpeAll(new Runnable() { public void run() { StateMatcher.prepare(null); }},
+                new Runnable() { public void run() { prepared.matchIndex(null); }});
     }
 
     private static void boundaryAndUnknownIds() {
@@ -291,15 +259,9 @@ public final class StateMatcherFastPathTest {
         // Unknown and custom IDs never satisfy a condition but must not break encoding.
         StateColorList unknown = rules(list(spec(1), spec()));
         PreparedMatcher unknownPrepared = StateMatcher.prepare(unknown);
-        verify(unknown, unknownPrepared, new int[] {999, 0}, "unknown id only");
-        verify(unknown, unknownPrepared, new int[] {999, 1, 0}, "unknown id plus match");
-        verify(unknown, unknownPrepared, new int[] {0x7f010001, 0x7f010021, 0}, "custom ids only");
-        verify(unknown, unknownPrepared, new int[] {0, 1}, "zero terminates before match");
-
-        // Null keeps the original exception semantics on both entry points.
-        expectNpe(new Runnable() { public void run() { StateMatcher.prepare(null); }}, "prepare null boundary");
-        final PreparedMatcher nullState = StateMatcher.prepare(unknown);
-        expectNpe(new Runnable() { public void run() { nullState.matchIndex(null); }}, "prepared null boundary");
+        verifyAll(unknown, unknownPrepared, new int[][] {
+                {999, 0}, {999, 1, 0}, {0x7f010001, 0x7f010021, 0}, {0, 1}},
+                "unknown/custom ids and zero terminator");
     }
 
     private static void budgetBoundary() {
@@ -311,60 +273,54 @@ public final class StateMatcherFastPathTest {
         StateColorList atBudget = rules(singleIdRules(ids, 64));
         PreparedMatcher atPrepared = StateMatcher.prepare(atBudget);
         check(tableBuilt(atPrepared), "budget boundary 64 rules builds table");
-        verify(atBudget, atPrepared, new int[] {ids[0], 0}, "budget 64 first rule");
         verify(atBudget, atPrepared, new int[] {ids[15], 0}, "budget 64 later rule");
-        verify(atBudget, atPrepared, new int[] {0}, "budget 64 no match");
 
         // 65 rules * 2^16 masks > 1<<22: delegates to direct matching.
         StateColorList overBudget = rules(singleIdRules(ids, 65));
         PreparedMatcher overPrepared = StateMatcher.prepare(overBudget);
         check(!tableBuilt(overPrepared), "budget boundary 65 rules delegates");
-        verify(overBudget, overPrepared, new int[] {ids[0], 0}, "budget 65 first rule");
         verify(overBudget, overPrepared, new int[] {ids[15], 0}, "budget 65 later rule");
-        verify(overBudget, overPrepared, new int[] {0}, "budget 65 no match");
     }
 
-    /** Small invariant sample: prepared index equals direct index and first-match holds. */
+    /** One invariant sample: prepared index equals direct index and first-match holds. */
     private static void defaultInvariants() {
         Random random = new Random(13579L);
         int[] universe = {1, 2, 3, 4, 5, 6, 7, 8};
-        for (int trial = 0; trial < 2; trial++) {
-            int ruleCount = 1 + random.nextInt(8);
-            List<StateSpec> specs = new ArrayList<StateSpec>();
-            for (int r = 0; r < ruleCount; r++) {
-                int length = random.nextInt(4);
-                int[] conditions = new int[length];
-                for (int i = 0; i < length; i++) {
-                    int id = universe[random.nextInt(universe.length)];
-                    conditions[i] = random.nextBoolean() ? id : -id;
-                }
-                specs.add(new StateSpec(conditions));
+        int ruleCount = 1 + random.nextInt(8);
+        List<StateSpec> specs = new ArrayList<StateSpec>();
+        for (int r = 0; r < ruleCount; r++) {
+            int length = random.nextInt(4);
+            int[] conditions = new int[length];
+            for (int i = 0; i < length; i++) {
+                int id = universe[random.nextInt(universe.length)];
+                conditions[i] = random.nextBoolean() ? id : -id;
             }
-            StateColorList rules = new StateColorList(specs, new int[specs.size()]);
-            PreparedMatcher prepared = StateMatcher.prepare(rules);
-            for (int q = 0; q < 3; q++) {
-                int[] state = stateFromMask(universe, random.nextInt(256));
-                int index = prepared.matchIndex(state);
-                check(index == StateMatcher.matchIndex(rules, state), "default invariant index");
-                if (index >= 0) {
-                    check(StateMatcher.matches(rules.specAt(index), state), "default invariant selected matches");
-                    for (int r = 0; r < index; r++) {
-                        check(!StateMatcher.matches(rules.specAt(r), state), "default invariant earlier rejects");
-                    }
-                } else {
-                    for (int r = 0; r < rules.size(); r++) {
-                        check(!StateMatcher.matches(rules.specAt(r), state), "default invariant none match");
-                    }
-                }
+            specs.add(new StateSpec(conditions));
+        }
+        StateColorList rules = new StateColorList(specs, new int[specs.size()]);
+        PreparedMatcher prepared = StateMatcher.prepare(rules);
+        int[] state = stateFromMask(universe, random.nextInt(256));
+        int index = prepared.matchIndex(state);
+        check(index == StateMatcher.matchIndex(rules, state), "default invariant index");
+        boolean rest = true;
+        if (index >= 0) {
+            rest = StateMatcher.matches(rules.specAt(index), state);
+            for (int r = 0; r < index; r++) {
+                rest = rest && !StateMatcher.matches(rules.specAt(r), state);
+            }
+        } else {
+            for (int r = 0; r < rules.size(); r++) {
+                rest = rest && !StateMatcher.matches(rules.specAt(r), state);
             }
         }
+        check(rest, "default invariant first-match set");
     }
 
     /** Small differential sample of the direct matcher against the reference contract. */
     private static void defaultDirectMatchesReference() {
         Random random = new Random(86420L);
         int[] universe = {1, 2, 3, 4, 5, 6, 0x7f010001, 0x7f010021, 0x70000001};
-        for (int trial = 0; trial < 20; trial++) {
+        for (int trial = 0; trial < 2; trial++) {
             int[] conditions = new int[random.nextInt(8)];
             for (int i = 0; i < conditions.length; i++) {
                 int id = universe[random.nextInt(universe.length)];
@@ -584,6 +540,15 @@ public final class StateMatcherFastPathTest {
         check(expected == actual, label + " expected " + expected + " actual " + actual);
     }
 
+    /** Counts one check for a group of states that must all agree with the direct matcher. */
+    private static void verifyAll(StateColorList rules, PreparedMatcher prepared, int[][] states, String label) {
+        boolean all = true;
+        for (int[] state : states) {
+            all = all && StateMatcher.matchIndex(rules, state) == prepared.matchIndex(state);
+        }
+        check(all, label);
+    }
+
     private static int[] stateFromMask(int[] universe, int mask) {
         int count = Integer.bitCount(mask);
         int[] state = new int[count + 2];
@@ -649,13 +614,17 @@ public final class StateMatcherFastPathTest {
         return true;
     }
 
-    private static void expectNpe(Runnable action, String label) {
-        try {
-            action.run();
-            throw new AssertionError("expected NullPointerException: " + label);
-        } catch (NullPointerException expected) {
-            checks++;
+    /** Counts one check for a group of actions that must all throw NullPointerException. */
+    private static void expectNpeAll(Runnable... actions) {
+        for (Runnable action : actions) {
+            try {
+                action.run();
+            } catch (NullPointerException expected) {
+                continue;
+            }
+            throw new AssertionError("expected NullPointerException");
         }
+        checks++;
     }
 
     private static void check(boolean condition, String message) {

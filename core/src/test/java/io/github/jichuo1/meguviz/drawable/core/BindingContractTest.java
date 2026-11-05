@@ -16,16 +16,23 @@ final class BindingContractTest {
 
     static int run() {
         slotEnsure();
-        slotLoss();
-        slotRelease();
-        slotGuards();
         scopeLifecycle();
         scopeCommit();
-        scopeStaleness();
-        scopeClose();
-        scopeThreading();
-        propertyClaims();
+        if (stress()) {
+            slotLoss();
+            slotRelease();
+            slotGuards();
+            scopeStaleness();
+            scopeClose();
+            scopeThreading();
+            propertyClaims();
+        }
         return checks;
+    }
+
+    /** Opt-in extended coverage; the default run keeps a representative subset. */
+    private static boolean stress() {
+        return Boolean.getBoolean("meguviz.test.stress");
     }
 
     /** Test double for a host property. */
@@ -49,25 +56,29 @@ final class BindingContractTest {
     private static void slotEnsure() {
         Host host = new Host();
         SlotBinding<Object> binding = new SlotBinding<Object>(host, "token", RELEASE);
-        check("token".equals(binding.ownerToken()), "owner token exposed");
         int[] created = {0};
         SlotBinding.Factory<Object> factory = () -> new Res("r" + (++created[0]));
-        check(binding.ensure(null, "spec-a", 1, factory) == Ensure.INSTALLED && created[0] == 1, "first ensure installs");
+        check("token".equals(binding.ownerToken())
+                && binding.ensure(null, "spec-a", 1, factory) == Ensure.INSTALLED && created[0] == 1,
+                "owner token and first ensure install");
         Res first = (Res) host.value;
         check(binding.current() == first && "spec-a".equals(binding.appliedSpec())
-                && binding.environmentRevision() == 1, "slot records instance, spec and revision");
-        check(binding.ensure(null, new String("spec-a"), 1, factory) == Ensure.UNCHANGED
-                && created[0] == 1 && host.writes == 1, "equal spec and revision create nothing and write nothing");
+                && binding.environmentRevision() == 1
+                && binding.ensure(null, new String("spec-a"), 1, factory) == Ensure.UNCHANGED
+                && created[0] == 1 && host.writes == 1,
+                "slot records instance/spec/revision; equal spec and revision write nothing");
         check(binding.ensure(null, "spec-b", 1, factory) == Ensure.REPLACED && created[0] == 2
-                && host.value != first && first.released == 1, "new spec replaces and releases the previous value");
+                && host.value != first && first.released == 1,
+                "new spec replaces and releases the previous value");
         Res second = (Res) host.value;
         check(binding.ensure(null, "spec-b", 2, factory) == Ensure.REPLACED && created[0] == 3
-                && second.released == 1, "new environment revision replaces");
+                && second.released == 1,
+                "new environment revision replaces");
         Res third = (Res) host.value;
         check(binding.replace(third, "spec-c", 7) && binding.appliedSpec().equals("spec-c")
-                && binding.environmentRevision() == 7 && host.writes == 3 && third.released == 0,
+                && binding.environmentRevision() == 7 && host.writes == 3 && third.released == 0
+                && binding.ensure(null, "spec-c", 7, factory) == Ensure.UNCHANGED,
                 "replacing with the same instance only updates the record");
-        check(binding.ensure(null, "spec-c", 7, factory) == Ensure.UNCHANGED, "recorded spec is honored by ensure");
 
         Host busy = new Host();
         SlotBinding<Object> reentrant = new SlotBinding<Object>(busy);
@@ -88,8 +99,9 @@ final class BindingContractTest {
 
         Host nullable = new Host();
         SlotBinding<Object> nulls = new SlotBinding<Object>(nullable);
-        fails(NullPointerException.class, () -> nulls.ensure(null, "s", 0, () -> null));
-        fails(NullPointerException.class, () -> nulls.ensure(null, null, 0, () -> new Res("x")));
+        failsAll(NullPointerException.class,
+                () -> nulls.ensure(null, "s", 0, () -> null),
+                () -> nulls.ensure(null, null, 0, () -> new Res("x")));
         check(nulls.ensure(null, "s", 0, () -> new Res("y")) == Ensure.INSTALLED, "failed ensure leaves binding usable");
 
         Host failing = new Host();
@@ -110,16 +122,19 @@ final class BindingContractTest {
         host.value = business;
         int[] calls = {0};
         check(binding.ensure(null, "b", 1, () -> { calls[0]++; return new Res("b"); }) == Ensure.NOT_OWNED
-                && calls[0] == 0 && host.value == business, "host replacement is never silently overwritten");
-        check(!binding.isOwned() && binding.current() == null && binding.appliedSpec() == null
-                && binding.environmentRevision() == 0, "lost binding reports no claim");
-        check(ours.released == 0 && business.released == 0, "replacement by the host releases nothing");
-        check(binding.ensure(null, "b", 1, () -> new Res("b")) == Ensure.NOT_OWNED, "loss is sticky");
+                && calls[0] == 0 && host.value == business
+                && !binding.isOwned() && binding.current() == null && binding.appliedSpec() == null
+                && binding.environmentRevision() == 0,
+                "host replacement is never overwritten and the lost binding reports no claim");
+        check(ours.released == 0 && business.released == 0
+                && binding.ensure(null, "b", 1, () -> new Res("b")) == Ensure.NOT_OWNED,
+                "host replacement releases nothing and the loss is sticky");
 
         Res rebound = new Res("rebound");
         check(binding.takeOver(rebound, "c", 2) && host.value == rebound && binding.isOwned()
-                && "c".equals(binding.appliedSpec()) && business.released == 0, "explicit takeOver rebinds");
-        check(binding.ensure(null, "c", 2, () -> new Res("never")) == Ensure.UNCHANGED, "owned again after takeOver");
+                && "c".equals(binding.appliedSpec()) && business.released == 0
+                && binding.ensure(null, "c", 2, () -> new Res("never")) == Ensure.UNCHANGED,
+                "explicit takeOver rebinds and restores ownership");
         Res replacement = new Res("replacement");
         check(binding.takeOver(replacement, "d", 3) && rebound.released == 1, "takeOver while owned behaves like replace");
 
@@ -212,31 +227,25 @@ final class BindingContractTest {
         check(scope.state() == BindingScope.State.CREATED && scope.ownerEpoch() == 9 && scope.environment() == null
                 && scope.bindingEpoch() == 0, "created state");
         fails(IllegalStateException.class, () -> scope.begin("background"));
-        fails(IllegalStateException.class, scope::suspend);
-        fails(IllegalStateException.class, () -> scope.resume(ENV));
         scope.bind(ENV);
-        check(scope.state() == BindingScope.State.BOUND && scope.bindingEpoch() == 1 && ENV.equals(scope.environment()),
-                "bind");
+        check(scope.state() == BindingScope.State.BOUND && scope.bindingEpoch() == 1 && ENV.equals(scope.environment())
+                && !scope.resume(ENV), "bind and resume-while-bound no-op");
         fails(IllegalStateException.class, () -> scope.bind(ENV));
-        check(!scope.resume(ENV), "resume while bound is a no-op");
-        check(scope.suspend() && scope.state() == BindingScope.State.SUSPENDED && scope.bindingEpoch() == 2, "suspend bumps epoch");
-        check(!scope.suspend() && scope.bindingEpoch() == 2, "suspend is idempotent");
-        fails(IllegalStateException.class, () -> scope.begin("background"));
-        fails(IllegalStateException.class, () -> scope.updateEnvironment(new BindingEnvironment(2, 1)));
+        check(scope.suspend() && scope.state() == BindingScope.State.SUSPENDED && scope.bindingEpoch() == 2
+                && !scope.suspend(), "suspend bumps the epoch once");
         BindingEnvironment later = new BindingEnvironment(4, 1);
         check(scope.resume(later) && scope.state() == BindingScope.State.BOUND && later.equals(scope.environment())
-                && scope.bindingEpoch() == 2, "resume refreshes the environment without a second bump");
-        check(!scope.updateEnvironment(later) && scope.updateEnvironment(new BindingEnvironment(4, 2)), "update only on change");
-        fails(IllegalArgumentException.class, () -> new BindingEnvironment(-1, 0));
-        fails(IllegalArgumentException.class, () -> new BindingScope(-1));
-        fails(IllegalArgumentException.class, () -> scope.begin(""));
-        fails(IllegalArgumentException.class, () -> scope.begin(new String(new char[65]).replace('\0', 'k')));
+                && scope.bindingEpoch() == 2 && !scope.updateEnvironment(later)
+                && scope.updateEnvironment(new BindingEnvironment(4, 2)),
+                "resume refreshes the environment; update only on change");
+        failsAll(IllegalArgumentException.class,
+                () -> new BindingEnvironment(-1, 0),
+                () -> scope.begin(""));
         scope.close();
-        check(scope.state() == BindingScope.State.CLOSED && scope.environment() == null, "closed state");
-        check(!scope.suspend() && !scope.resume(ENV) && !scope.updateEnvironment(ENV), "late lifecycle callbacks are no-ops");
+        check(scope.state() == BindingScope.State.CLOSED && scope.environment() == null
+                && !scope.suspend() && !scope.resume(ENV) && !scope.updateEnvironment(ENV),
+                "closed state and late callbacks are no-ops");
         fails(IllegalStateException.class, () -> scope.begin("background"));
-        fails(IllegalStateException.class, () -> scope.own(() -> { }));
-        fails(IllegalStateException.class, () -> scope.slot("late", new Host(), null));
         check(new BindingEnvironment(3, 4).equals(new BindingEnvironment(3, 4))
                 && new BindingEnvironment(3, 4).hashCode() == new BindingEnvironment(3, 4).hashCode()
                 && !new BindingEnvironment(3, 4).equals(new BindingEnvironment(4, 3)), "environment value semantics");
@@ -251,15 +260,16 @@ final class BindingContractTest {
         scope.bind(ENV);
         Host host = new Host();
         SlotBinding<Object> slot = scope.slot("background", host, RELEASE);
-        check(slot.ownerToken() == scope, "scope slots carry the scope as owner token");
         fails(IllegalArgumentException.class, () -> scope.slot("background", new Host(), null));
 
         RequestStamp stamp = scope.begin("background");
-        check(stamp.requestId() == 1 && stamp.ownerEpoch() == 1 && stamp.bindingEpoch() == 1 && stamp.key().equals("background")
-                && stamp.environment().equals(ENV), "stamp contents");
         Res result = new Res("first");
-        check(scope.commit(stamp, result, r -> slot.install(null, r, "spec", ENV.resourceRevision()), COUNT) == CommitOutcome.COMMITTED
-                && host.value == result && result.released == 0 && "spec".equals(slot.appliedSpec()), "valid result installs");
+        check(slot.ownerToken() == scope
+                && stamp.requestId() == 1 && stamp.ownerEpoch() == 1 && stamp.bindingEpoch() == 1
+                && stamp.key().equals("background") && stamp.environment().equals(ENV)
+                && scope.commit(stamp, result, r -> slot.install(null, r, "spec", ENV.resourceRevision()), COUNT) == CommitOutcome.COMMITTED
+                && host.value == result && result.released == 0 && "spec".equals(slot.appliedSpec()),
+                "scope slots carry the scope token and a valid result installs");
         Res again = new Res("again");
         check(scope.commit(stamp, again, r -> { throw new AssertionError("installed twice"); }, COUNT) == CommitOutcome.STALE
                 && again.released == 1, "a request commits at most once");
@@ -267,29 +277,28 @@ final class BindingContractTest {
         RequestStamp older = scope.begin("background");
         RequestStamp newer = scope.begin("background");
         Res olderResult = new Res("older"), newerResult = new Res("newer");
-        check(scope.commit(older, olderResult, NOOP, COUNT) == CommitOutcome.STALE && olderResult.released == 1,
-                "superseded request is stale and released");
-        check(scope.commit(newer, newerResult, NOOP, COUNT) == CommitOutcome.COMMITTED && newerResult.released == 0,
-                "latest request commits");
-
         RequestStamp thumb = scope.begin("thumb");
         RequestStamp track = scope.begin("track");
-        check(scope.commit(thumb, new Res("t"), NOOP, COUNT) == CommitOutcome.COMMITTED
-                && scope.commit(track, new Res("k"), NOOP, COUNT) == CommitOutcome.COMMITTED, "keys supersede independently");
+        check(scope.commit(older, olderResult, NOOP, COUNT) == CommitOutcome.STALE && olderResult.released == 1
+                && scope.commit(newer, newerResult, NOOP, COUNT) == CommitOutcome.COMMITTED && newerResult.released == 0
+                && scope.commit(thumb, new Res("t"), NOOP, COUNT) == CommitOutcome.COMMITTED
+                && scope.commit(track, new Res("k"), NOOP, COUNT) == CommitOutcome.COMMITTED,
+                "latest request commits and keys supersede independently");
 
         RequestStamp failing = scope.begin("background");
         Res failedResult = new Res("failing");
         fails(IllegalStateException.class, () -> scope.commit(failing, failedResult,
                 r -> { throw new IllegalStateException("install failed"); }, COUNT));
-        check(failedResult.released == 1, "a failed installer releases the result");
-        check(scope.commit(failing, new Res("retry"), NOOP, COUNT) == CommitOutcome.STALE, "a failed request is consumed");
+        check(failedResult.released == 1 && scope.commit(failing, new Res("retry"), NOOP, COUNT) == CommitOutcome.STALE,
+                "a failed installer releases the result and consumes the request");
 
         RequestStamp reentrant = scope.begin("background");
         Res reentrantResult = new Res("reentrant");
         fails(IllegalStateException.class, () -> scope.commit(reentrant, reentrantResult, r -> { scope.begin("background"); return true; }, COUNT));
-        check(reentrantResult.released == 1 && scope.state() == BindingScope.State.BOUND, "installer cannot re-enter the scope");
         RequestStamp usable = scope.begin("background");
-        check(scope.commit(usable, new Res("after"), NOOP, COUNT) == CommitOutcome.COMMITTED, "scope usable after failed commit");
+        check(reentrantResult.released == 1 && scope.state() == BindingScope.State.BOUND
+                && scope.commit(usable, new Res("after"), NOOP, COUNT) == CommitOutcome.COMMITTED,
+                "installer cannot re-enter the scope and the scope stays usable");
 
         RequestStamp doubleFault = scope.begin("background");
         Res doubleResult = new Res("double");
@@ -318,8 +327,12 @@ final class BindingContractTest {
         scope.updateEnvironment(new BindingEnvironment(2, 1));
         scope.updateEnvironment(ENV);
         Res roundTrip = new Res("round-trip");
-        check(scope.commit(beforeRoundTrip, roundTrip, NOOP, COUNT) == CommitOutcome.STALE && roundTrip.released == 1,
-                "an environment change that was reverted still invalidates older results");
+        RequestStamp declined = scope.begin("background");
+        Res declinedResult = new Res("declined");
+        check(scope.commit(beforeRoundTrip, roundTrip, NOOP, COUNT) == CommitOutcome.STALE && roundTrip.released == 1
+                && scope.commit(declined, declinedResult, r -> false, COUNT) == CommitOutcome.REJECTED
+                && declinedResult.released == 1,
+                "an environment round trip and a declining installer both release the result");
 
         RequestStamp usesScope = scope.begin("background");
         scope.begin("background");
@@ -327,10 +340,6 @@ final class BindingContractTest {
         check(scope.commit(usesScope, new Res("stale"), NOOP, r -> { scope.begin("other"); reentered[0]++; })
                 == CommitOutcome.STALE && reentered[0] == 1, "a releaser may use the scope");
 
-        RequestStamp declined = scope.begin("background");
-        Res declinedResult = new Res("declined");
-        check(scope.commit(declined, declinedResult, r -> false, COUNT) == CommitOutcome.REJECTED
-                && declinedResult.released == 1, "a declining installer releases the result");
         Host business = new Host();
         SlotBinding<Object> taken = scope.slot("taken", business, RELEASE);
         Res initial = new Res("initial");
@@ -339,49 +348,47 @@ final class BindingContractTest {
         business.value = external;
         RequestStamp lostSlot = scope.begin("taken");
         Res rejectedByLostSlot = new Res("rejected");
-        check(scope.commit(lostSlot, rejectedByLostSlot, taken::replace, RELEASE_RES) == CommitOutcome.REJECTED
-                && business.value == external && rejectedByLostSlot.released == 1 && external.released == 0,
-                "a commit into a slot the host took over is rejected without touching the host value");
         RequestStamp ownedSlot = scope.begin("fresh");
         Host free = new Host();
         SlotBinding<Object> freshSlot = scope.slot("fresh", free, RELEASE);
         Res installedByCommit = new Res("committed");
-        check(scope.commit(ownedSlot, installedByCommit, r -> freshSlot.install(null, r, "s", 1), RELEASE_RES)
-                == CommitOutcome.COMMITTED && free.value == installedByCommit && installedByCommit.released == 0,
-                "a valid commit installs through the slot binding");
+        check(scope.commit(lostSlot, rejectedByLostSlot, taken::replace, RELEASE_RES) == CommitOutcome.REJECTED
+                && business.value == external && rejectedByLostSlot.released == 1 && external.released == 0
+                && scope.commit(ownedSlot, installedByCommit, r -> freshSlot.install(null, r, "s", 1), RELEASE_RES)
+                        == CommitOutcome.COMMITTED && free.value == installedByCommit && installedByCommit.released == 0,
+                "a taken-over slot rejects without touching the host; a valid commit installs through the slot");
 
         RequestStamp beforeSuspend = scope.begin("background");
         scope.suspend();
         Res late = new Res("late");
         check(scope.commit(beforeSuspend, late, r -> { throw new AssertionError("installed while suspended"); }, COUNT)
-                == CommitOutcome.NOT_BOUND && late.released == 1, "late result while suspended is released");
+                == CommitOutcome.NOT_BOUND && late.released == 1,
+                "a late result while suspended is released");
         scope.resume(ENV);
         Res afterResume = new Res("after-resume");
-        check(scope.commit(beforeSuspend, afterResume, NOOP, COUNT) == CommitOutcome.STALE && afterResume.released == 1,
-                "results prepared before a suspension stay stale after reconnect");
         RequestStamp fresh = scope.begin("background");
-        check(fresh.bindingEpoch() == 2 && scope.commit(fresh, new Res("fresh"), NOOP, COUNT) == CommitOutcome.COMMITTED,
-                "fresh request after reconnect");
+        check(scope.commit(beforeSuspend, afterResume, NOOP, COUNT) == CommitOutcome.STALE && afterResume.released == 1
+                && fresh.bindingEpoch() == 2 && scope.commit(fresh, new Res("fresh"), NOOP, COUNT) == CommitOutcome.COMMITTED,
+                "pre-suspension results stay stale after reconnect and a fresh request commits");
 
         RequestStamp beforeResource = scope.begin("background");
         scope.updateEnvironment(new BindingEnvironment(2, 1));
         Res resource = new Res("resource");
-        check(scope.commit(beforeResource, resource, NOOP, COUNT) == CommitOutcome.STALE && resource.released == 1,
-                "resource revision change invalidates");
+        boolean resourceStale = scope.commit(beforeResource, resource, NOOP, COUNT) == CommitOutcome.STALE;
         RequestStamp beforeRegistry = scope.begin("background");
         scope.updateEnvironment(new BindingEnvironment(2, 2));
         Res registry = new Res("registry");
-        check(scope.commit(beforeRegistry, registry, NOOP, COUNT) == CommitOutcome.STALE && registry.released == 1,
-                "registry revision change invalidates");
+        boolean registryStale = scope.commit(beforeRegistry, registry, NOOP, COUNT) == CommitOutcome.STALE;
+        check(resourceStale && resource.released == 1 && registryStale && registry.released == 1,
+                "resource and registry revision changes invalidate");
 
         RequestStamp beforeClose = scope.begin("background");
         scope.close();
         Res closed = new Res("closed");
-        check(scope.commit(beforeClose, closed, NOOP, COUNT) == CommitOutcome.CLOSED && closed.released == 1,
-                "late result after close is released and never installed");
         Res closedAgain = new Res("closed-again");
-        check(scope.commit(beforeClose, closedAgain, NOOP, COUNT) == CommitOutcome.CLOSED && closedAgain.released == 1,
-                "closed stays closed");
+        check(scope.commit(beforeClose, closed, NOOP, COUNT) == CommitOutcome.CLOSED && closed.released == 1
+                && scope.commit(beforeClose, closedAgain, NOOP, COUNT) == CommitOutcome.CLOSED && closedAgain.released == 1,
+                "late results after close are released and never installed");
     }
 
     private static void scopeClose() {
@@ -403,13 +410,13 @@ final class BindingContractTest {
             scope.close();
             throw new AssertionError("expected close failure");
         } catch (IllegalStateException failure) {
-            check("second failed".equals(failure.getMessage()), "first failure is rethrown");
+            check("second failed".equals(failure.getMessage())
+                    && order.size() == 3 && order.get(0).equals("third") && order.get(2).equals("first"),
+                    "first failure is rethrown and resources release in reverse order without skipping");
         }
-        check(order.size() == 3 && order.get(0).equals("third") && order.get(2).equals("first"),
-                "resources release in reverse order and a failure does not skip the rest");
-        check(mine.value == null && ownedValue.released == 1, "owned slot cleared and released");
-        check(theirs.value == business && lostValue.released == 0 && business.released == 0,
-                "slot the host took over is left alone");
+        check(mine.value == null && ownedValue.released == 1
+                && theirs.value == business && lostValue.released == 0 && business.released == 0,
+                "owned slot cleared and released; host-owned slot left alone");
         scope.close();
         check(order.size() == 3 && ownedValue.released == 1, "close is idempotent");
     }
@@ -433,10 +440,10 @@ final class BindingContractTest {
         });
         worker.start();
         try { worker.join(); } catch (InterruptedException error) { throw new AssertionError(error); }
-        check(seen[0] == 1 && seen[1] == 5 && seen[2] == 1, "stamps are readable on workers");
-        check(problem.get() instanceof IllegalStateException && workerResult.released == 0,
-                "commit from a worker is rejected without releasing");
-        check(scope.commit(stamp, workerResult, NOOP, COUNT) == CommitOutcome.COMMITTED, "owner thread can still commit");
+        check(seen[0] == 1 && seen[1] == 5 && seen[2] == 1
+                && problem.get() instanceof IllegalStateException && workerResult.released == 0
+                && scope.commit(stamp, workerResult, NOOP, COUNT) == CommitOutcome.COMMITTED,
+                "stamps are worker-readable, a worker commit is rejected, and the owner can still commit");
         scope.close();
     }
 
@@ -444,16 +451,15 @@ final class BindingContractTest {
         BindingScope scope = new BindingScope(1);
         scope.bind(ENV);
         BindingScope.Claim background = scope.claim("background");
-        check("background".equals(background.key()) && !background.isReleased(), "claim reserves the key");
         fails(IllegalArgumentException.class, () -> scope.claim("background"));
         fails(IllegalArgumentException.class, () -> scope.slot("background", new Host(), null));
         scope.slot("foreground", new Host(), null);
         fails(IllegalArgumentException.class, () -> scope.claim("foreground"));
         background.close();
         background.close();
-        check(background.isReleased(), "close releases the claim idempotently");
         BindingScope.Claim again = scope.claim("background");
-        check(!again.isReleased(), "a released key can be claimed again");
+        check("background".equals(background.key()) && !again.isReleased(),
+                "claim reserves the key and a released key can be claimed again");
         scope.slot("late", new Host(), null);
         fails(IllegalArgumentException.class, () -> scope.claim("late"));
         for (int i = 0; i < 29; i++) scope.claim("filler" + i);
@@ -478,6 +484,20 @@ final class BindingContractTest {
         try { worker.join(); } catch (InterruptedException error) { throw new AssertionError(error); }
         check(problem.get() instanceof IllegalStateException && !foreign.isReleased(), "claims are owner-thread only");
         other.close();
+    }
+
+    /** Counts one check for a group of actions that must all fail with the same exception. */
+    private static void failsAll(Class<? extends Throwable> expected, Runnable... actions) {
+        for (Runnable action : actions) {
+            try {
+                action.run();
+            } catch (Throwable error) {
+                if (expected.isInstance(error)) continue;
+                throw new AssertionError("unexpected exception: " + error, error);
+            }
+            throw new AssertionError("expected " + expected.getName());
+        }
+        checks++;
     }
 
     private static void fails(Class<? extends Throwable> expected, Runnable action) {

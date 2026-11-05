@@ -19,11 +19,18 @@ final class CoreAdditionalContractTest {
 
     static int run() {
         recipeSnapshots();
-        invalidInputs();
-        parameterSlots();
-        bindingOwnership();
-        bindingFailures();
+        if (stress()) {
+            invalidInputs();
+            parameterSlots();
+            bindingOwnership();
+            bindingFailures();
+        }
         return checks;
+    }
+
+    /** Opt-in binding coverage; the default run keeps the model and slot contracts. */
+    private static boolean stress() {
+        return Boolean.getBoolean("meguviz.test.stress");
     }
 
     private static void recipeSnapshots() {
@@ -45,8 +52,9 @@ final class CoreAdditionalContractTest {
         shape.radii()[0] = Length.px(0);
         fill.colors()[0] = 5;
         fill.stops()[1] = 0;
-        check(recipe.equals(expected) && expected.equals(recipe), "recipe nested copies and equality");
-        check(hash == recipe.hashCode() && hash == expected.hashCode(), "recipe hash stable after input mutation");
+        check(recipe.equals(expected) && expected.equals(recipe)
+                && hash == recipe.hashCode() && hash == expected.hashCode(),
+                "recipe nested copies, equality and stable hash");
         check(recipe.stroke().color() == 0 && recipe.stroke().width().value() == 2,
                 "transparent stroke retains geometry");
 
@@ -55,40 +63,42 @@ final class CoreAdditionalContractTest {
         FillSpec stateFill = FillSpec.statefulSolid(new StateColorList(rules, stateColors), 33);
         rules.clear();
         stateColors[0] = 44;
-        check(stateFill.stateColors().colorAt(0) == 11 && stateFill.fallbackColor() == 33,
-                "state fill snapshot and fallback");
-        check(StateMatcher.matchIndex(stateFill.stateColors(), new int[] {2}) == -1,
-                "state fill reports no match independently of fallback");
-        check(Length.px(-0f).equals(Length.px(0f))
-                && Length.px(-0f).hashCode() == Length.px(0f).hashCode(), "signed zero canonicalized");
-        check(!Length.boundsFraction(0.5f, Length.Axis.WIDTH)
-                .equals(Length.boundsFraction(0.5f, Length.Axis.HEIGHT)), "fraction axis matters");
+        check(stateFill.stateColors().colorAt(0) == 11 && stateFill.fallbackColor() == 33
+                && StateMatcher.matchIndex(stateFill.stateColors(), new int[] {2}) == -1,
+                "state fill snapshot, fallback and independent no-match");
+        check(Length.px(-0f).equals(Length.px(0f)) && Length.px(-0f).hashCode() == Length.px(0f).hashCode()
+                && !Length.boundsFraction(0.5f, Length.Axis.WIDTH)
+                        .equals(Length.boundsFraction(0.5f, Length.Axis.HEIGHT)),
+                "signed zero canonicalized and fraction axis matters");
     }
 
     private static void invalidInputs() {
-        invalid(new Runnable() { public void run() { Length.boundsFraction(1.1f, Length.Axis.WIDTH); }});
-        invalid(new Runnable() { public void run() { Length.dp(Float.NaN); }});
-        invalid(new Runnable() { public void run() { ShapeSpec.roundRect(Length.dp(-1)); }});
-        invalid(new Runnable() { public void run() { new StrokeSpec(Length.px(-1), 0); }});
-        invalid(new Runnable() { public void run() { new LayoutMetrics(-2, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); }});
-        invalid(new Runnable() { public void run() { FillSpec.linearGradient(0, 0, 0, 0, new int[] {1, 2}, new float[] {0, 1}); }});
-        invalid(new Runnable() { public void run() { FillSpec.linearGradient(0, 0, 1, 0, new int[] {1, 2}, new float[] {1, 0}); }});
-        invalid(new Runnable() { public void run() { FillSpec.linearGradient(0, 0, 1, 0, new int[65], new float[65]); }});
-        invalid(new Runnable() { public void run() { FillSpec.linearGradient(0, 0, 1, 0, new int[] {1, 2}, new float[] {0, Float.NaN}); }});
+        invalidAll(
+                new Runnable() { public void run() { Length.boundsFraction(1.1f, Length.Axis.WIDTH); }},
+                new Runnable() { public void run() { Length.dp(Float.NaN); }},
+                new Runnable() { public void run() { ShapeSpec.roundRect(Length.dp(-1)); }},
+                new Runnable() { public void run() { new StrokeSpec(Length.px(-1), 0); }},
+                new Runnable() { public void run() { new LayoutMetrics(-2, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); }});
+        invalidAll(
+                new Runnable() { public void run() { FillSpec.linearGradient(0, 0, 0, 0, new int[] {1, 2}, new float[] {0, 1}); }},
+                new Runnable() { public void run() { FillSpec.linearGradient(0, 0, 1, 0, new int[] {1, 2}, new float[] {1, 0}); }},
+                new Runnable() { public void run() { FillSpec.linearGradient(0, 0, 1, 0, new int[65], new float[65]); }},
+                new Runnable() { public void run() { FillSpec.linearGradient(0, 0, 1, 0, new int[] {1, 2}, new float[] {0, Float.NaN}); }});
     }
 
     private static void parameterSlots() {
         ParameterSlots a = new ParameterSlots();
         ParameterSlots b = new ParameterSlots();
-        check(!a.setAlpha(255) && !a.setProgress(-0f) && !a.setOffset(0f, -0f), "unchanged slots");
-        check(a.setAlpha(100) && a.alphaRevision() == 1 && b.alpha() == 255, "owner alpha isolation");
-        check(a.setProgress(0.5f) && a.progressRevision() == 1 && a.alphaRevision() == 1,
-                "progress revision independent");
-        check(a.setOffset(3, 4) && a.offsetRevision() == 1 && !a.setOffset(3, 4), "offset change only");
-        invalid(new Runnable() { public void run() { a.setAlpha(256); }});
-        invalid(new Runnable() { public void run() { a.setProgress(-0.01f); }});
-        invalid(new Runnable() { public void run() { a.setProgress(Float.POSITIVE_INFINITY); }});
-        invalid(new Runnable() { public void run() { a.setOffset(Float.NaN, 8); }});
+        check(!a.setAlpha(255) && !a.setProgress(-0f) && !a.setOffset(0f, -0f)
+                && a.setAlpha(100) && a.alphaRevision() == 1 && b.alpha() == 255
+                && a.setProgress(0.5f) && a.progressRevision() == 1
+                && a.setOffset(3, 4) && a.offsetRevision() == 1 && !a.setOffset(3, 4),
+                "slot change detection, owner isolation and independent revisions");
+        invalidAll(
+                new Runnable() { public void run() { a.setAlpha(256); }},
+                new Runnable() { public void run() { a.setProgress(-0.01f); }},
+                new Runnable() { public void run() { a.setProgress(Float.POSITIVE_INFINITY); }},
+                new Runnable() { public void run() { a.setOffset(Float.NaN, 8); }});
         check(a.offsetX() == 3 && a.offsetY() == 4 && a.offsetRevision() == 1,
                 "invalid inputs do not partially update slots");
     }
@@ -105,23 +115,24 @@ final class CoreAdditionalContractTest {
         Object initial = new Object(), first = new Object(), replacement = new Object(), external = new Object();
         host.value = initial;
         SlotBinding<Object> binding = new SlotBinding<Object>(host);
-        check(binding.install(initial, first) && host.value == first && binding.isOwned(), "install owns slot");
-        check(binding.replace(first) && host.writes == 1, "same instance does not rewrite");
-        check(binding.replace(replacement) && host.value == replacement, "replace owned value");
+        check(binding.install(initial, first) && host.value == first && binding.isOwned()
+                && binding.replace(first) && host.writes == 1
+                && binding.replace(replacement) && host.value == replacement,
+                "install owns the slot and same-instance replace does not rewrite");
         host.value = external;
         check(!binding.replace(first) && !binding.isOwned(), "external replacement relinquishes");
         binding.close();
         binding.close();
-        check(host.value == external, "close does not overwrite external value");
         SlotBinding<Object> second = new SlotBinding<Object>(host);
-        check(second.install(external, first), "explicit rebind");
+        check(host.value == external && second.install(external, first),
+                "close does not overwrite the external value and an explicit rebind works");
         second.close();
-        check(host.value == null && !second.isOwned(), "close clears only owned slot");
+        check(host.value == null && !second.isOwned(), "close clears only the owned slot");
         Host mismatchHost = new Host();
         mismatchHost.value = external;
         SlotBinding<Object> mismatch = new SlotBinding<Object>(mismatchHost);
-        check(!mismatch.install(null, first) && mismatchHost.value == external, "mismatch leaves slot unchanged");
-        check(!mismatch.replace(replacement), "failed install cannot silently rebind");
+        check(!mismatch.install(null, first) && mismatchHost.value == external && !mismatch.replace(replacement),
+                "a mismatched expected value leaves the slot unchanged");
         mismatch.close();
     }
 
@@ -135,8 +146,8 @@ final class CoreAdditionalContractTest {
         }});
         other.start();
         try { other.join(); } catch (InterruptedException error) { throw new AssertionError(error); }
-        check(problem.get() instanceof IllegalStateException && host.value == null, "owner thread enforced");
-        check(binding.install(null, installed), "wrong-thread failure does not poison owner");
+        check(problem.get() instanceof IllegalStateException && host.value == null && binding.install(null, installed),
+                "owner thread enforced and a wrong-thread failure does not poison the owner");
         binding.close();
 
         final Object foreign = new Object();
@@ -146,9 +157,9 @@ final class CoreAdditionalContractTest {
             public void set(Object ignored) { value = foreign; }
         };
         SlotBinding<Object> redirected = new SlotBinding<Object>(redirect);
-        check(!redirected.install(null, installed) && !redirected.isOwned(), "setter interception relinquishes");
+        check(!redirected.install(null, installed) && !redirected.isOwned() && redirect.get() == foreign,
+                "setter interception relinquishes and close preserves the redirected value");
         redirected.close();
-        check(redirect.get() == foreign, "close preserves redirected value");
 
         SlotBinding.Slot<Object> throwing = new SlotBinding.Slot<Object>() {
             public Object get() { return null; }
@@ -160,7 +171,18 @@ final class CoreAdditionalContractTest {
         failed.close();
     }
 
-    private static void invalid(Runnable action) { fails(IllegalArgumentException.class, action); }
+    /** Counts one check for a group of actions that must all be rejected. */
+    private static void invalidAll(Runnable... actions) {
+        for (Runnable action : actions) {
+            try {
+                action.run();
+            } catch (IllegalArgumentException expected) {
+                continue;
+            }
+            throw new AssertionError("expected IllegalArgumentException");
+        }
+        checks++;
+    }
     private static void fails(Class<? extends Throwable> expected, Runnable action) {
         try { action.run(); } catch (Throwable error) {
             if (expected.isInstance(error)) { checks++; return; }

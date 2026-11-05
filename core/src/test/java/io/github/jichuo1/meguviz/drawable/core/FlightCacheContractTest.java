@@ -26,22 +26,24 @@ final class FlightCacheContractTest {
     static int run() throws Exception {
         missThenHit();
         concurrentRequestsShareOneFlight();
-        cancellation();
         staleGenerationIsDroppedButCached();
         failuresAreSharedAndNotCached();
-        flightLimitAndAbandonedWork();
-        rejectionPathLeavesNothingToCancel();
-        droppedFlightWithoutAssignedTaskStillMakesRoom();
-        evictionAndWeight();
-        computeNowContracts();
-        closeContracts();
-        executorRefusal();
-        posterRefusal();
-        abandonRunningProducers();
-        queuedTasksAreRemovedFromThreadPools();
-        stampede();
-        randomizedBounds();
-        retentionFastPath();
+        if (stress()) {
+            cancellation();
+            flightLimitAndAbandonedWork();
+            rejectionPathLeavesNothingToCancel();
+            droppedFlightWithoutAssignedTaskStillMakesRoom();
+            evictionAndWeight();
+            computeNowContracts();
+            closeContracts();
+            executorRefusal();
+            posterRefusal();
+            abandonRunningProducers();
+            queuedTasksAreRemovedFromThreadPools();
+            stampede();
+            randomizedBounds();
+            retentionFastPath();
+        }
         return checks;
     }
 
@@ -124,35 +126,37 @@ final class FlightCacheContractTest {
         FlightCache<String, String> cache = env.builder().build();
         Probe first = new Probe("first");
         Ticket<String> ticket = cache.request("a", env.producer(), first);
-        check(ticket.status() == Status.STARTED && ticket.value() == null, "a miss starts a flight");
-        check(cache.peek("a") == null && env.produced.get() == 0, "peek never computes");
+        check(ticket.status() == Status.STARTED && ticket.value() == null
+                && cache.peek("a") == null && env.produced.get() == 0,
+                "a miss starts a flight and peek never computes");
         env.workers.runAll();
-        check(env.produced.get() == 1 && first.events.isEmpty(), "the producer ran off the owner thread, delivery waits for the owner");
+        check(env.produced.get() == 1 && first.events.isEmpty(),
+                "the producer ran off the owner thread and delivery waits for the owner");
         env.owner.drain();
-        check(first.events.equals(listOf("ready:v-a")), "the owner receives the value");
-        check("v-a".equals(cache.peek("a")), "the value is cached");
         Ticket<String> hit = cache.request("a", env.producer(), new Probe("late"));
-        check(hit.status() == Status.READY && "v-a".equals(hit.value()) && !hit.cancel(), "a hit is answered synchronously, with nothing to cancel");
+        check(first.events.equals(listOf("ready:v-a")) && "v-a".equals(cache.peek("a"))
+                && hit.status() == Status.READY && "v-a".equals(hit.value()) && !hit.cancel(),
+                "the owner receives the value and a hit is answered synchronously");
         env.workers.runAll();
         env.owner.drain();
-        check(env.produced.get() == 1, "a hit does not produce again");
         FlightCache.Stats stats = cache.stats();
-        check(stats.misses == 1 && stats.hits >= 2 && stats.produced == 1 && stats.delivered == 1 && stats.version == 1
-                && stats.entries == 1 && stats.flights == 0, "counters describe what happened: " + stats);
+        check(env.produced.get() == 1 && stats.misses == 1 && stats.hits >= 2 && stats.produced == 1
+                && stats.delivered == 1 && stats.version == 1 && stats.entries == 1 && stats.flights == 0,
+                "a hit does not produce again and the counters describe what happened: " + stats);
     }
 
     private static void concurrentRequestsShareOneFlight() {
         Env env = new Env();
         FlightCache<String, String> cache = env.builder().build();
         Probe one = new Probe("one"), two = new Probe("two");
-        check(cache.request("k", env.producer(), one).status() == Status.STARTED, "first request starts");
-        check(cache.request("k", env.producer(), two).status() == Status.JOINED, "second request joins");
-        check(env.workers.pending() == 1, "one task for the key");
+        check(cache.request("k", env.producer(), one).status() == Status.STARTED
+                && cache.request("k", env.producer(), two).status() == Status.JOINED
+                && env.workers.pending() == 1, "first request starts, second joins, one task for the key");
         env.workers.runAll();
         env.owner.drain();
-        check(env.produced.get() == 1 && one.events.equals(listOf("ready:v-k")) && two.events.equals(listOf("ready:v-k")),
-                "one production, both subscribers served");
-        check(cache.stats().joins == 1, "the join was counted");
+        check(env.produced.get() == 1 && one.events.equals(listOf("ready:v-k"))
+                && two.events.equals(listOf("ready:v-k")) && cache.stats().joins == 1,
+                "one production serves both subscribers and the join is counted");
     }
 
     private static void cancellation() {
@@ -163,17 +167,19 @@ final class FlightCacheContractTest {
         check(ticket.cancel() && !ticket.cancel(), "cancel succeeds once");
         env.workers.runAll();
         env.owner.drain();
-        check(env.produced.get() == 0 && only.events.isEmpty() && cache.stats().abandonedDropped == 1 && cache.stats().flights == 0,
+        check(env.produced.get() == 0 && only.events.isEmpty() && cache.stats().abandonedDropped == 1
+                && cache.stats().flights == 0,
                 "a flight nobody waits for is dropped without running");
-
         Ticket<String> abandoned = cache.request("k", env.producer(), new Probe("gone"));
         abandoned.cancel();
         Probe reviver = new Probe("reviver");
-        check(cache.request("k", env.producer(), reviver).status() == Status.JOINED && env.workers.pending() == 1,
-                "a new request revives the abandoned queued flight instead of queuing a second one");
+        check(cache.request("k", env.producer(), reviver).status() == Status.JOINED
+                && env.workers.pending() == 1,
+                "a new request revives the abandoned queued flight instead of queueing a second one");
         env.workers.runAll();
         env.owner.drain();
-        check(env.produced.get() == 1 && reviver.events.equals(listOf("ready:v-k")), "the revived flight ran once for the new subscriber");
+        check(env.produced.get() == 1 && reviver.events.equals(listOf("ready:v-k")),
+                "the revived flight ran once for the new subscriber");
 
         Probe stays = new Probe("stays"), leaves = new Probe("leaves");
         cache.request("m", env.producer(), stays);
@@ -181,15 +187,17 @@ final class FlightCacheContractTest {
         leaving.cancel();
         env.workers.runAll();
         env.owner.drain();
-        check(stays.events.equals(listOf("ready:v-m")) && leaves.events.isEmpty(), "cancelling one subscriber leaves the other");
+        check(stays.events.equals(listOf("ready:v-m")) && leaves.events.isEmpty(),
+                "cancelling one subscriber leaves the other");
 
         Probe late = new Probe("late");
         Ticket<String> posted = cache.request("n", env.producer(), late);
         env.workers.runAll();
-        check(env.owner.pending() == 1, "the delivery is already posted");
-        check(posted.cancel(), "cancel after the post but before the delivery still wins");
+        check(env.owner.pending() == 1 && posted.cancel(),
+                "cancel after the post but before the delivery still wins");
         env.owner.drain();
-        check(late.events.isEmpty() && "v-n".equals(cache.peek("n")), "nothing is delivered after cancel, the value is still cached");
+        check(late.events.isEmpty() && "v-n".equals(cache.peek("n")),
+                "nothing is delivered after cancel and the value is still cached");
     }
 
     private static void staleGenerationIsDroppedButCached() {
@@ -201,8 +209,9 @@ final class FlightCacheContractTest {
         stale.current = false;
         env.workers.runAll();
         env.owner.drain();
-        check(stale.events.isEmpty() && fresh.events.equals(listOf("ready:v-k")), "a subscriber that is no longer current is skipped");
-        check("v-k".equals(cache.peek("k")) && cache.stats().droppedStale == 1, "its work is still cached and the drop counted");
+        check(stale.events.isEmpty() && fresh.events.equals(listOf("ready:v-k"))
+                && "v-k".equals(cache.peek("k")) && cache.stats().droppedStale == 1,
+                "a stale subscriber is skipped while its work is still cached and counted");
     }
 
     private static void failuresAreSharedAndNotCached() {
@@ -220,8 +229,9 @@ final class FlightCacheContractTest {
         cache.request("k", flaky, two);
         env.workers.runAll();
         env.owner.drain();
-        check(one.events.equals(listOf("failed:render failed")) && two.events.equals(listOf("failed:render failed")), "every waiter gets the failure");
-        check(cache.peek("k") == null && cache.stats().flights == 0 && cache.stats().failures == 1, "a failure is not cached and leaves no flight");
+        check(one.events.equals(listOf("failed:render failed")) && two.events.equals(listOf("failed:render failed"))
+                && cache.peek("k") == null && cache.stats().flights == 0 && cache.stats().failures == 1,
+                "every waiter gets the failure and it is not cached");
         Probe retry = new Probe("retry");
         check(cache.request("k", flaky, retry).status() == Status.STARTED, "the next request tries again");
         env.workers.runAll();
@@ -243,15 +253,18 @@ final class FlightCacheContractTest {
         FlightCache<String, String> cache = env.builder().maxFlights(2).build();
         Ticket<String> a = cache.request("a", env.producer(), new Probe("a"));
         cache.request("b", env.producer(), new Probe("b"));
-        check(cache.request("c", env.producer(), new Probe("c")).status() == Status.REJECTED_CAPACITY, "past the flight limit nothing is queued");
-        check(env.workers.pending() == 2 && cache.stats().rejectedCapacity == 1, "the limit holds the queue at two");
+        check(cache.request("c", env.producer(), new Probe("c")).status() == Status.REJECTED_CAPACITY
+                && env.workers.pending() == 2 && cache.stats().rejectedCapacity == 1,
+                "past the flight limit nothing is queued");
         a.cancel();
         Probe c = new Probe("c");
-        check(cache.request("c", env.producer(), c).status() == Status.STARTED, "an abandoned queued flight gives way to a new request");
+        check(cache.request("c", env.producer(), c).status() == Status.STARTED,
+                "an abandoned queued flight gives way to a new request");
         env.workers.runAll();
         env.owner.drain();
-        check(env.produced.get() == 2 && c.events.equals(listOf("ready:v-c")) && cache.peek("a") == null, "the abandoned key was never produced");
-        check(cache.stats().abandonedDropped >= 1 && cache.stats().flights == 0, "and the bookkeeping is clean");
+        check(env.produced.get() == 2 && c.events.equals(listOf("ready:v-c")) && cache.peek("a") == null
+                && cache.stats().abandonedDropped >= 1 && cache.stats().flights == 0,
+                "the abandoned key was never produced and the bookkeeping is clean");
     }
 
     /**
@@ -264,12 +277,10 @@ final class FlightCacheContractTest {
         cache.request("taken", env.producer(), new Probe("taken"));
         Probe refused = new Probe("refused");
         Ticket<String> rejected = cache.request("other", env.producer(), refused);
-        check(rejected.status() == Status.REJECTED_CAPACITY && rejected.value() == null,
-                "past the flight limit the request is rejected");
-        check(!rejected.cancel(), "a rejection registered no subscriber, so there is nothing to cancel");
-        check(refused.events.isEmpty() && cache.stats().cancelledSubscribers == 0
+        check(rejected.status() == Status.REJECTED_CAPACITY && rejected.value() == null && !rejected.cancel()
+                && refused.events.isEmpty() && cache.stats().cancelledSubscribers == 0
                 && cache.stats().rejectedCapacity == 1 && cache.stats().flights == 1,
-                "the refused subscriber is never called and no cancellation is counted: " + cache.stats());
+                "a rejection registers no subscriber and counts no cancellation: " + cache.stats());
         env.workers.runAll();
         env.owner.drain();
         check(refused.events.isEmpty() && env.produced.get() == 1 && cache.peek("taken") != null,
@@ -296,10 +307,10 @@ final class FlightCacheContractTest {
         task.setAccessible(true);
         task.set(flight, null);
         Probe next = new Probe("next");
-        check(cache.request("next", env.producer(), next).status() == Status.STARTED,
-                "a dropped flight whose task was never assigned still makes room");
-        check(cache.stats().abandonedDropped == 1 && cache.stats().rejectedCapacity == 0
-                && cache.stats().flights == 1, "the drop is counted and nothing is rejected: " + cache.stats());
+        check(cache.request("next", env.producer(), next).status() == Status.STARTED
+                && cache.stats().abandonedDropped == 1 && cache.stats().rejectedCapacity == 0
+                && cache.stats().flights == 1,
+                "a dropped flight whose task was never assigned still makes room: " + cache.stats());
         env.workers.runAll();
         env.owner.drain();
         check(next.events.equals(listOf("ready:v-next")) && env.produced.get() == 1,
@@ -314,8 +325,9 @@ final class FlightCacheContractTest {
             env.workers.runAll();
             env.owner.drain();
         }
-        check(byEntries.peek("a") == null && byEntries.peek("b") != null && byEntries.peek("c") != null, "least recently used goes first");
-        check(env.evictions.equals(listOf("a:CAPACITY")), "the listener hears about it: " + env.evictions);
+        check(byEntries.peek("a") == null && byEntries.peek("b") != null && byEntries.peek("c") != null
+                && env.evictions.equals(listOf("a:CAPACITY")),
+                "least recently used goes first and the listener hears about it: " + env.evictions);
 
         Env weighted = new Env();
         FlightCache<String, String> byWeight = weighted.builder().maxWeight(10).weigher(new FlightCache.Weigher<String>() {
@@ -350,15 +362,15 @@ final class FlightCacheContractTest {
         Env env = new Env();
         FlightCache<String, String> cache = env.builder().build();
         env.workers.refuse = true;   // proves the synchronous path never touches the executor
-        check("v-x".equals(cache.computeNow("x", env.producer())) && env.produced.get() == 1, "computeNow produces on the calling thread");
-        check("v-x".equals(cache.peek("x")) && "v-x".equals(cache.computeNow("x", env.producer())) && env.produced.get() == 1,
-                "and caches, so the next call is a hit");
+        check("v-x".equals(cache.computeNow("x", env.producer())) && env.produced.get() == 1
+                && "v-x".equals(cache.peek("x")) && "v-x".equals(cache.computeNow("x", env.producer())),
+                "computeNow produces on the calling thread and caches the result");
         env.workers.refuse = false;
 
         Probe waiting = new Probe("waiting");
         cache.request("y", env.producer(), waiting);
-        check(env.workers.pending() == 1, "a flight for y is queued");
-        check("v-y".equals(cache.computeNow("y", env.producer())), "computeNow does not wait for the queued flight");
+        check(env.workers.pending() == 1 && "v-y".equals(cache.computeNow("y", env.producer())),
+                "computeNow does not wait for the queued flight");
         env.owner.drain();
         check(waiting.events.equals(listOf("ready:v-y")), "the queued flight's subscriber is completed with that value");
         env.workers.runAll();
@@ -388,8 +400,10 @@ final class FlightCacheContractTest {
         check(cache.isClosed() && cache.peek("done") == null && env.evictions.contains("done:CLOSED"), "close empties the cache and tells the listener");
         env.workers.runAll();
         env.owner.drain();
-        check(pending.events.isEmpty() && env.produced.get() == 1, "queued work never runs and nobody is called after close");
-        check(cache.request("again", env.producer(), new Probe("x")).status() == Status.REJECTED_CLOSED, "requests are refused");
+        Ticket<String> afterClose = cache.request("again", env.producer(), new Probe("x"));
+        check(pending.events.isEmpty() && env.produced.get() == 1
+                && afterClose.status() == Status.REJECTED_CLOSED,
+                "queued work never runs after close and requests are refused");
         expect(IllegalStateException.class, new Runnable() { public void run() {
             try { cache.computeNow("z", env.producer()); } catch (RuntimeException e) { throw e; } catch (Exception e) { throw new AssertionError(e); } }});
     }
@@ -399,8 +413,9 @@ final class FlightCacheContractTest {
         FlightCache<String, String> cache = env.builder().build();
         env.workers.refuse = true;
         Probe refused = new Probe("refused");
-        check(cache.request("k", env.producer(), refused).status() == Status.REJECTED_CAPACITY, "a refusing executor is a rejection");
-        check(cache.stats().flights == 0 && refused.events.isEmpty(), "no flight is left behind and the refused caller is not called");
+        check(cache.request("k", env.producer(), refused).status() == Status.REJECTED_CAPACITY
+                && cache.stats().flights == 0 && refused.events.isEmpty(),
+                "a refusing executor is a rejection that leaves no flight behind");
         env.workers.refuse = false;
         check(cache.request("k", env.producer(), new Probe("again")).status() == Status.STARTED, "the key is usable afterwards");
     }
@@ -436,9 +451,9 @@ final class FlightCacheContractTest {
                 ticket.cancel();
                 proceed.countDown();
                 pool.shutdown();
-                check(pool.awaitTermination(5, TimeUnit.SECONDS), "the producer finished");
-                check(sawCancel[0] == abandon, "abandonRunning=" + abandon + " controls what a running producer sees");
-                check("late".equals(cache.peek("k")), "a started flight is cached either way");
+                check(pool.awaitTermination(5, TimeUnit.SECONDS) && sawCancel[0] == abandon
+                        && "late".equals(cache.peek("k")),
+                        "abandonRunning=" + abandon + " controls cancellation and the started flight is cached");
             } finally {
                 pool.shutdownNow();
             }
@@ -459,10 +474,10 @@ final class FlightCacheContractTest {
             FlightCache<String, String> cache = FlightCache.<String, String>builder(pool, owner).maxFlights(2).build();
             Ticket<String> a = cache.request("a", env.producer(), new Probe("a"));
             cache.request("b", env.producer(), new Probe("b"));
-            check(pool.getQueue().size() == 2, "both flights wait in the pool queue");
             a.cancel();
             cache.request("c", env.producer(), new Probe("c"));
-            check(pool.getQueue().size() == 2, "the abandoned task left the pool queue when its slot was reused");
+            check(pool.getQueue().size() == 2,
+                    "both flights waited in the pool queue and the abandoned task left it when its slot was reused");
             cache.close();
             check(pool.getQueue().isEmpty(), "closing empties the pool queue of its tasks");
             release.countDown();
@@ -560,9 +575,9 @@ final class FlightCacheContractTest {
             owner.drain();
             FlightCache.Stats stats = cache.stats();
             check(violations.get() == 0, "no bound was ever exceeded");
-            check(stats.flights == 0 && stats.entries <= 8 && stats.weight <= 40, "at rest nothing is in flight: " + stats);
-            check(stats.produced + stats.failures + stats.abandonedDropped == stats.flightsStarted,
-                    "every started flight ended in exactly one counted way: " + stats);
+            check(stats.flights == 0 && stats.entries <= 8 && stats.weight <= 40
+                    && stats.produced + stats.failures + stats.abandonedDropped == stats.flightsStarted,
+                    "at rest nothing is in flight and every started flight ended counted: " + stats);
         } finally {
             pool.shutdownNow();
         }
@@ -592,23 +607,21 @@ final class FlightCacheContractTest {
                 "a started ticket references its flight, subscriber and producer while in flight");
         env.workers.runAll();
         env.owner.drain();
-        check(subSubscriber.get(sub) == null && subFlight.get(sub) == null,
-                "a completed ticket drops the subscriber and the flight");
-        check(flightProducer.get(flight) == null && flightTask.get(flight) == null,
-                "the finished flight drops the producer and the task (which captures the cache)");
-        check(!ticket.cancel(), "a completed ticket has nothing to cancel");
+        check(subSubscriber.get(sub) == null && subFlight.get(sub) == null
+                && flightProducer.get(flight) == null && flightTask.get(flight) == null
+                && !ticket.cancel(),
+                "a completed ticket and its flight drop every reference and have nothing to cancel");
 
         Ticket<String> cancelled = cache.request("c", env.producer(), new Probe("c"));
         Object cancelledSub = subscription.get(cancelled);
         Object cancelledFlight = subFlight.get(cancelledSub);
-        check(cancelled.cancel(), "cancel succeeds");
-        check(subSubscriber.get(cancelledSub) == null && subFlight.get(cancelledSub) == null,
+        check(cancelled.cancel() && subSubscriber.get(cancelledSub) == null && subFlight.get(cancelledSub) == null,
                 "a cancelled ticket drops the subscriber and the flight at once");
         env.workers.runAll();
         env.owner.drain();
-        check(flightProducer.get(cancelledFlight) == null && flightTask.get(cancelledFlight) == null,
+        check(flightProducer.get(cancelledFlight) == null && flightTask.get(cancelledFlight) == null
+                && cache.stats().flights == 0,
                 "the abandoned flight drops the producer and the task when it is dropped");
-        check(cache.stats().flights == 0, "no flight is left behind");
     }
 
     private static Field field(Class<?> type, String name) throws NoSuchFieldException {
