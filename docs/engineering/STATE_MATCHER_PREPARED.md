@@ -3,8 +3,14 @@
 ## 结论
 
 `StateMatcher.prepare(StateColorList)` 返回可复用的 `PreparedMatcher`，只暴露
-`matchIndex(int[])`。它是显式 opt-in：默认 `StateMatcher.matchIndex` / `matches` 与
-`RecipeDrawable` 行为不变，调用方自行持有 prepared 实例并重复使用才值得。
+`matchIndex(int[])`。它是显式 opt-in：默认 `StateMatcher.matchIndex` / `matches` 行为不变，
+调用方自行持有 prepared 实例并重复使用才值得。
+
+`RecipeDrawable` 自 2026-11-05 起**按实例惰性**持有一个 `PreparedMatcher`：首次
+`STATEFUL_SOLID` 外观更新时才 `prepare` 一次，之后每次状态变化只做一次字段读 + 数组读。
+不在构造期建表，因为 `ConstantState.newDrawable()` 与 XML inflation 会创建大量可能永不
+变化状态的实例，而 K=16/R=64 的建表实测约 2 ms。宽规则或超预算时 `prepare` 返回委托
+direct 的 fallback，行为与直接匹配一致。
 
 逐点等价于本库 direct 匹配：同一规则顺序首匹配、正/负条件、spec 与 state 的 0 终止、
 无匹配返回 -1、null 抛 `NullPointerException`。unknown/custom ID、state 中的负值、

@@ -136,6 +136,26 @@ powershell -ExecutionPolicy Bypass -File benchmark/run-flightcache-probe.ps1 -Fo
 `ComposeContract` 的 `stateSet` 断言已加强为精确数组相等（含顺序、长度与全 false 空数组），
 但该 androidTest 不在 `check` 内，本轮未在设备运行；不声称设备收益。
 
+## 2026-11-05（第四轮）：RecipeDrawable 惰性状态表
+
+`RecipeDrawable` 增加 owner 线程私有的 `PreparedMatcher` 字段，**首次** `STATEFUL_SOLID`
+外观更新时 `StateMatcher.prepare` 一次，之后每次状态变化走 prepared 快路径（一次字段读 +
+数组读）。构造期不建表：`newDrawable()`/inflation 会创建大量可能永不变化状态的实例，而
+K=16/R=64 建表实测约 2 ms（host JVM，120 Hz 单帧预算的 24%）。
+
+host 探针（`StateMatcherProbe`，1M 次/轮）既有数据：page2 4.9→3.1 M ns（1.55×，回本 58
+次查询）、real4 5.9→4.0（1.46×，108）、custom6 15.0→3.4（4.36×，61）、pilot8 26.3→8.8
+（2.98×，224）。**单实例**回本需 58–224 次状态变化；按一次按压约 2 次 `onStateChange`
+折算为 29–112 次按压，低频控件可能不回本。
+
+**共享 Map 不进查询热路径**：独立测量显示 `HashMap<StateColorList,…>` 在 R≥16 时每次查询
+52–61 ns，比 direct（10–66 ns）更慢，因为 `StateColorList.hashCode` 是 O(R)。因此本轮只做
+实例字段 memo，不做跨实例共享缓存。跨实例共享需另设「每实例 acquire 一次 + 有界权重 +
+specs-only 键」的设计，未在本轮实施。
+
+验证：`:core:contractTest`、`check`、`:android:compileDebugJavaWithJavac` 通过；设备像素与
+分配未测，不声称设备收益。
+
 ## 参考（直接阅读，非外部研究服务）
 
 - Go `golang.org/x/sync/singleflight`（https://pkg.go.dev/golang.org/x/sync/singleflight）：同键并发
