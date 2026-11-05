@@ -18,6 +18,7 @@ public final class BindingEnvironment {
     public long registryRevision() { return registryRevision; }
 
     @Override public boolean equals(Object other) {
+        if (this == other) return true;
         if (!(other instanceof BindingEnvironment)) return false;
         BindingEnvironment that = (BindingEnvironment) other;
         return resourceRevision == that.resourceRevision && registryRevision == that.registryRevision;

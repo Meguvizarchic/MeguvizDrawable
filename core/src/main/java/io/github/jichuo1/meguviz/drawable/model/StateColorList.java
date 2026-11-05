@@ -41,6 +41,7 @@ public final class StateColorList {
 
     @Override
     public boolean equals(Object other) {
+        if (this == other) return true;
         if (!(other instanceof StateColorList)) {
             return false;
         }

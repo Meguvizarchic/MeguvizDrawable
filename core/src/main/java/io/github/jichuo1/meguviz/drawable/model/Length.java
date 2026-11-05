@@ -34,6 +34,7 @@ public final class Length {
     public Axis axis() { return axis; }
 
     @Override public boolean equals(Object other) {
+        if (this == other) return true;
         if (!(other instanceof Length)) return false;
         Length that = (Length) other;
         return unit == that.unit && axis == that.axis

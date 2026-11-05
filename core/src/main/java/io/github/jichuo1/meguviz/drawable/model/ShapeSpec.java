@@ -32,6 +32,7 @@ public final class ShapeSpec {
     public Kind kind() { return kind; }
     public Length[] radii() { return radii.clone(); }
     @Override public boolean equals(Object other) {
+        if (this == other) return true;
         if (!(other instanceof ShapeSpec)) return false;
         ShapeSpec that = (ShapeSpec) other;
         return kind == that.kind && Arrays.equals(radii, that.radii);

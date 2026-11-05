@@ -38,6 +38,7 @@ public final class LayoutMetrics {
     public int opticalInsetRight() { return opticalInsetRight; }
     public int opticalInsetBottom() { return opticalInsetBottom; }
     @Override public boolean equals(Object other) {
+        if (this == other) return true;
         if (!(other instanceof LayoutMetrics)) return false;
         LayoutMetrics that = (LayoutMetrics) other;
         return intrinsicWidth == that.intrinsicWidth && intrinsicHeight == that.intrinsicHeight

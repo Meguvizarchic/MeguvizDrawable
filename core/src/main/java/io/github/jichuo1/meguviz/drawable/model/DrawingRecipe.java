@@ -22,6 +22,7 @@ public final class DrawingRecipe {
     public StrokeSpec stroke() { return stroke; }
     public LayoutMetrics metrics() { return metrics; }
     @Override public boolean equals(Object other) {
+        if (this == other) return true;
         if (!(other instanceof DrawingRecipe)) return false;
         DrawingRecipe that = (DrawingRecipe) other;
         return shape.equals(that.shape) && fill.equals(that.fill) && metrics.equals(that.metrics)

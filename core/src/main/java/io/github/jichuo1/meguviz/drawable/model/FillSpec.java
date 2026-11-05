@@ -77,6 +77,7 @@ public final class FillSpec {
     public int[] colors() { return colors.clone(); }
     public float[] stops() { return stops.clone(); }
     @Override public boolean equals(Object other) {
+        if (this == other) return true;
         if (!(other instanceof FillSpec)) return false;
         FillSpec that = (FillSpec) other;
         return kind == that.kind && color == that.color

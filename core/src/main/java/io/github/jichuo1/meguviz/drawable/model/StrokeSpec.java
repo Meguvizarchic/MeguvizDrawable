@@ -14,6 +14,7 @@ public final class StrokeSpec {
     public Length width() { return width; }
     public int color() { return color; }
     @Override public boolean equals(Object other) {
+        if (this == other) return true;
         if (!(other instanceof StrokeSpec)) return false;
         StrokeSpec that = (StrokeSpec) other;
         return width.equals(that.width) && color == that.color;

@@ -36,6 +36,7 @@ public final class StateSpec {
 
     @Override
     public boolean equals(Object other) {
+        if (this == other) return true;
         return other instanceof StateSpec && Arrays.equals(conditions, ((StateSpec) other).conditions);
     }
 
