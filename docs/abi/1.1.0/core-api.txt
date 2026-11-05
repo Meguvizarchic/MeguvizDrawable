@@ -475,6 +475,29 @@ public final class io.github.jichuo1.meguviz.drawable.core.StateMatcher$Prepared
     descriptor: ([I)I
 }
 
+# io.github.jichuo1.meguviz.drawable.core.StateMatcherCache (public)
+public final class io.github.jichuo1.meguviz.drawable.core.StateMatcherCache {
+  public static final long DEFAULT_MAX_WEIGHT = 1048576l;
+    descriptor: J
+  public static io.github.jichuo1.meguviz.drawable.core.StateMatcherCache shared();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/core/StateMatcherCache;
+
+  public io.github.jichuo1.meguviz.drawable.core.StateMatcherCache(long);
+    descriptor: (J)V
+
+  public io.github.jichuo1.meguviz.drawable.core.StateMatcher$PreparedMatcher acquire(io.github.jichuo1.meguviz.drawable.model.StateColorList);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/StateColorList;)Lio/github/jichuo1/meguviz/drawable/core/StateMatcher$PreparedMatcher;
+
+  public synchronized long weight();
+    descriptor: ()J
+
+  public synchronized int size();
+    descriptor: ()I
+
+  public synchronized void clear();
+    descriptor: ()V
+}
+
 # io.github.jichuo1.meguviz.drawable.model.DrawingRecipe (public)
 public final class io.github.jichuo1.meguviz.drawable.model.DrawingRecipe {
   public io.github.jichuo1.meguviz.drawable.model.DrawingRecipe(io.github.jichuo1.meguviz.drawable.model.ShapeSpec, io.github.jichuo1.meguviz.drawable.model.FillSpec, io.github.jichuo1.meguviz.drawable.model.StrokeSpec, io.github.jichuo1.meguviz.drawable.model.LayoutMetrics);

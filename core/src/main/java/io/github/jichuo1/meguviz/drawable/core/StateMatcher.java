@@ -184,6 +184,14 @@ public final class StateMatcher {
             this.rules = null;
         }
 
+        /**
+         * Distinct-ID count of the compiled table, or -1 when this matcher delegates to direct
+         * matching. Package-private: used by {@link StateMatcherCache} for admission and weight.
+         */
+        int tableIdCount() {
+            return table == null ? -1 : ids.length;
+        }
+
         private static int bitOf(int[] ids, int count, int id) {
             for (int i = 0; i < count; i++) {
                 if (ids[i] == id) {

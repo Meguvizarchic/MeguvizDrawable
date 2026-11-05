@@ -18,6 +18,7 @@ import android.graphics.drawable.Drawable;
 
 import io.github.jichuo1.meguviz.drawable.core.CornerRadii;
 import io.github.jichuo1.meguviz.drawable.core.StateMatcher;
+import io.github.jichuo1.meguviz.drawable.core.StateMatcherCache;
 import io.github.jichuo1.meguviz.drawable.model.DrawingRecipe;
 import io.github.jichuo1.meguviz.drawable.model.FillSpec;
 import io.github.jichuo1.meguviz.drawable.model.LayoutMetrics;
@@ -264,7 +265,9 @@ public final class RecipeDrawable extends Drawable {
     private StateMatcher.PreparedMatcher stateMatcher() {
         if (!stateMatcherResolved) {
             stateMatcherResolved = true;
-            stateMatcher = StateMatcher.prepare(recipe.fill().stateColors());
+            // Shared, bounded cache: instances with the same rule conditions reuse one table, so
+            // the one-off preparation cost is amortized across them. Null means "use direct".
+            stateMatcher = StateMatcherCache.shared().acquire(recipe.fill().stateColors());
         }
         return stateMatcher;
     }

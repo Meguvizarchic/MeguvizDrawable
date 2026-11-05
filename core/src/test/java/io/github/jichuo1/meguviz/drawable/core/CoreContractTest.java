@@ -21,6 +21,7 @@ public final class CoreContractTest {
         checks += FlightCacheContractTest.run();
         checks += AsyncPreparationContractTest.run();
         checks += StateMatcherFastPathTest.run();
+        checks += StateMatcherCacheContractTest.run();
         checks += TicketRetentionContractTest.run();
         if (!Boolean.getBoolean("meguviz.test.stress") && checks >= 150) {
             throw new AssertionError("Default contract budget exceeded: " + checks + "; keep broad corpora opt-in");
