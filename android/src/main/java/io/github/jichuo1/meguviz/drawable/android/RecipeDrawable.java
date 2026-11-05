@@ -45,6 +45,9 @@ public final class RecipeDrawable extends Drawable {
     private PorterDuff.Mode tintMode = PorterDuff.Mode.SRC_IN;
     private ColorFilter tintFilter;
     private int tintColor;
+    /** Owner-thread memo of the compiled state table; null means "not resolved yet" or "use direct". */
+    private StateMatcher.PreparedMatcher stateMatcher;
+    private boolean stateMatcherResolved;
 
     /** Density is fixed for the lifetime of this instance. Construct a new instance on density change. */
     public RecipeDrawable(DrawingRecipe recipe, float density) {
@@ -229,7 +232,10 @@ public final class RecipeDrawable extends Drawable {
         if (fill.kind() == FillSpec.Kind.SOLID) {
             fillColor = fill.color();
         } else if (fill.kind() == FillSpec.Kind.STATEFUL_SOLID) {
-            int index = StateMatcher.matchIndex(fill.stateColors(), super.getState());
+            StateMatcher.PreparedMatcher prepared = stateMatcher();
+            int index = prepared == null
+                    ? StateMatcher.matchIndex(fill.stateColors(), super.getState())
+                    : prepared.matchIndex(super.getState());
             fillColor = index < 0 ? fill.fallbackColor() : fill.stateColors().colorAt(index);
         } else {
             fillColor = Color.WHITE;
@@ -246,6 +252,22 @@ public final class RecipeDrawable extends Drawable {
         strokePaint.setColorFilter(filter);
     }
     private static int multipliedAlpha(int first, int second) { return (first * second + 127) / 255; }
+
+    /**
+     * Compiles the state table once per instance, on the first stateful lookup.
+     *
+     * <p>Deliberately lazy: {@code ConstantState.newDrawable()} and XML inflation create many
+     * instances that may never change state, and preparing at construction would pay the table
+     * cost (up to ~2 ms at K=16) for each of them. The table depends only on rule order and
+     * conditions, so a cached instance stays valid for the immutable recipe.
+     */
+    private StateMatcher.PreparedMatcher stateMatcher() {
+        if (!stateMatcherResolved) {
+            stateMatcherResolved = true;
+            stateMatcher = StateMatcher.prepare(recipe.fill().stateColors());
+        }
+        return stateMatcher;
+    }
 
     @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
 
