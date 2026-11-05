@@ -21,6 +21,9 @@ import java.util.Map;
  *   <li>Table construction happens outside the lock; the lock only guards map operations.</li>
  *   <li>Lookup is expected once per drawable instance, never per query. A content-keyed
  *       {@code HashMap} in the query path is slower than direct matching for large rule lists.</li>
+ *   <li>Access-order {@code LinkedHashMap.get} mutates the list, so lookups serialize on the
+ *       monitor. This is acceptable at one lookup per instance; a per-frame caller would need a
+ *       concurrent map plus a separate LRU list.</li>
  * </ul>
  */
 public final class StateMatcherCache {
@@ -59,11 +62,19 @@ public final class StateMatcherCache {
         }
 
         // Build outside the lock: this can take ~2 ms at K=16/R=64.
+        // Reject before building: a table that would be refused must not pay the preparation cost
+        // (K=16/R=64 takes ~2 ms). The distinct-ID scan stops at the table bound, so this is cheap.
+        int distinct = distinctIds(rules);
+        if (distinct > ALWAYS_CACHE_MAX_IDS && tableBytes(distinct) > maxWeight / 8) return null;
+
         StateMatcher.PreparedMatcher built = StateMatcher.prepare(rules);
         int ids = tableIdCount(built);
         if (ids < 0) return null; // delegating matcher: no benefit, and it retains the rules
         long cost = tableBytes(ids) + key.retainedBytes();
-        if (ids > ALWAYS_CACHE_MAX_IDS && cost > maxWeight / 8) return null;
+        // Admission is decided by the table payload alone: the key bytes are bookkeeping, and
+        // including them would reject the largest table by a few dozen bytes.
+        if (ids > ALWAYS_CACHE_MAX_IDS && tableBytes(ids) > maxWeight / 8) return null;
+        if (cost > maxWeight) return null; // the entry could never stay resident
 
         synchronized (this) {
             Entry existing = cache.get(key);
@@ -93,6 +104,32 @@ public final class StateMatcherCache {
     /** Distinct-ID count of a compiled table, or -1 when the matcher delegates to direct matching. */
     private static int tableIdCount(StateMatcher.PreparedMatcher matcher) {
         return matcher.tableIdCount();
+    }
+
+    /**
+     * Counts distinct condition IDs without building a table. Stops once the count exceeds the
+     * always-cache bound, which is enough to decide the admission policy.
+     */
+    private static int distinctIds(StateColorList rules) {
+        int count = rules.size();
+        int[] seen = new int[ALWAYS_CACHE_MAX_IDS + 1];
+        int distinct = 0;
+        for (int i = 0; i < count; i++) {
+            StateSpec spec = rules.specAt(i);
+            for (int j = 0; j < spec.size(); j++) {
+                int condition = spec.conditionAt(j);
+                if (condition == 0) break;
+                int id = condition > 0 ? condition : -condition;
+                boolean known = false;
+                for (int k = 0; k < distinct; k++) {
+                    if (seen[k] == id) { known = true; break; }
+                }
+                if (known) continue;
+                if (distinct == ALWAYS_CACHE_MAX_IDS) return distinct + 1; // over the bound
+                seen[distinct++] = id;
+            }
+        }
+        return distinct;
     }
 
     private static long tableBytes(int ids) {
@@ -130,8 +167,9 @@ public final class StateMatcherCache {
             this.hash = h;
         }
 
+        /** Array header plus references; the retained StateSpec objects are not counted. */
         long retainedBytes() {
-            return 16L + 4L * specs.length; // array header + references
+            return 16L + 4L * specs.length;
         }
 
         @Override public int hashCode() { return hash; }

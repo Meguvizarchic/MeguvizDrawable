@@ -19,15 +19,14 @@ direct 的 fallback，行为与直接匹配一致。
 
 - **键只含规则条件**（有序 `StateSpec` 列表），不含颜色：条件相同、颜色不同的两个列表共享
   同一张表。键在构造时算好 `hashCode`，查找不再重走每个条件。
-- **准入**：distinct ID ≤ 8 无条件缓存；> 8 需单表成本 ≤ `maxWeight/8`。委托 direct 的
-  fallback **不缓存**（无收益且会保留 rules 引用）。
-- **权重**：表字节（`2 * 2^K`）+ 键保留字节；默认上限 1 MiB，按访问序 LRU 淘汰。
-- **建表在锁外**，锁只保护映射操作，避免 K=16 的 ~2 ms 建表阻塞其他线程。
-- **查询热路径绝不查缓存**：独立测量显示 `HashMap<StateColorList,…>` 在 R≥16 时每次
-  52–61 ns，比 direct（10–66 ns）更慢，因为 `StateColorList.hashCode` 是 O(R)。
+- **准入**：distinct ID ≤ 8 无条件缓存；> 8 需**表负载**（`2 * 2^K`，不含键字节）≤ `maxWeight/8`。默认 1 MiB 下 K=16（128 KiB）恰好可缓存，K=17 起 `prepare` 本身已 fallback。**超限在 `prepare` 之前按 distinct-ID 扫描预估拒绝**，不付建表成本（K=16/R=64 的建表约 2 ms）。成本超过整个 `maxWeight` 的条目直接拒绝，避免「每次建表又立刻淘汰」的空转。委托 direct 的 fallback **不缓存**（无收益且会保留 rules 引用）。
+- **权重**：表字节（`2 * 2^K`）+ 键保留字节；默认上限 1 MiB，按访问序 LRU 淘汰。键保留字节只计 `StateSpec[]` 数组本身，不含被共享的 `StateSpec` 对象，因此实际内存略高于记账值。
+- **建表在锁外**，锁只保护映射操作，避免 K=16 的 ~2 ms 建表阻塞其他线程。访问序 `LinkedHashMap.get` 会改写链表，所以查找本身在监视器内串行；「每实例一次」量级可接受，每帧调用则需换并发映射 + 独立 LRU。
+- **查询热路径绝不查缓存**：独立测量显示 `HashMap<StateColorList,…>` 在 R≥16 时每次 52–61 ns，比 direct（10–66 ns）更慢，因为 `StateColorList.hashCode` 是 O(R)。该测量来自未跟踪的 scratch 探针（`benchmark/build/scratch/StateMatcherProbe.java` 的 `cacheOverhead`），未并入已跟踪探针。
 
-合同：`StateMatcherCacheContractTest`（16 项：同条件共享、异条件不共享、fallback 不缓存、
-权重淘汰、clear、缓存表与 direct 逐点一致）。`:core:contractTest` 默认 133 项通过。
+合同：`StateMatcherCacheContractTest`（31 项：同条件共享、异条件不共享、fallback 不缓存、
+超限表在建表前拒绝、极小预算不空转、LRU 命中刷新、跨列表取色、权重淘汰、clear、
+与 direct 逐点一致、8 线程并发只留一条且权重不重复计）。`:core:contractTest` 默认 148 项通过。
 
 **ABI 变更**：`StateMatcherCache` 是新增公开类，`docs/abi/1.1.0/core-api.json` 的
 `api_sha256` 由 `320ede76…` 更新为 `7763f8e4…`（导出类 53 → 54）。1.1.0 尚未发布，属

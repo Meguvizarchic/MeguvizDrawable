@@ -150,8 +150,11 @@ host 探针（`StateMatcherProbe`，1M 次/轮）既有数据：page2 4.9→3.1 
 
 **共享 Map 不进查询热路径**：独立测量显示 `HashMap<StateColorList,…>` 在 R≥16 时每次查询
 52–61 ns，比 direct（10–66 ns）更慢，因为 `StateColorList.hashCode` 是 O(R)。因此本轮只做
-实例字段 memo，不做跨实例共享缓存。跨实例共享需另设「每实例 acquire 一次 + 有界权重 +
-specs-only 键」的设计，未在本轮实施。
+实例字段 memo，不做跨实例共享缓存。
+
+2026-11-06 补充：跨实例共享缓存已在下一轮实施（`StateMatcherCache`，specs-only 键 + 权重
+上限 + LRU，只在每实例首次 `acquire` 时访问一次，查询热路径仍只读实例字段）。详见
+[状态匹配 prepared matcher](STATE_MATCHER_PREPARED.md)。
 
 验证：`:core:contractTest`、`check`、`:android:compileDebugJavaWithJavac` 通过；设备像素与
 分配未测，不声称设备收益。
