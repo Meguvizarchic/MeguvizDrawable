@@ -70,7 +70,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
 
     /** Runs a task on the owner thread (for example a main-looper post). May be called from any thread. */
     public interface OwnerPoster {
-        /** False if the owner is gone; the delivery is then dropped. */
+        /** False if the owner is gone; the delivery is then dropped. A thrown Throwable is treated the same way and counted. */
         boolean post(Runnable task);
     }
 
@@ -81,7 +81,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
 
     public enum EvictionReason { CAPACITY, REPLACED, CLOSED }
 
-    /** Called outside the cache lock, on the thread that caused the eviction. Exceptions are counted, not thrown. */
+    /** Called outside the cache lock, on the thread that caused the eviction. Throwables are counted, not thrown. */
     public interface EvictionListener<K, V> {
         void onEvicted(K key, V value, EvictionReason reason);
     }
@@ -235,7 +235,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
         // the flight cannot keep the producer (and whatever it captures) alive. Read under the lock
         // into a local before the producer runs, because close() may clear it while produce() runs.
         Producer<K, V> producer;
-        final List<Sub<K, V>> subscribers = new ArrayList<Sub<K, V>>();
+        final List<Sub<K, V>> subscribers = new ArrayList<Sub<K, V>>(1);
         FlightState state = FlightState.QUEUED;
         volatile boolean cancelled;
         volatile Runnable task;
@@ -323,50 +323,61 @@ public final class FlightCache<K, V> implements AutoCloseable {
         List<Runnable> unqueue = null;
         Flight<K, V> start = null;
         Sub<K, V> sub = null;
-        Ticket<V> ticket;
+        // The closed-rejection and hit paths only read state under the lock, so their Ticket is
+        // built after it: the hit path allocates nothing but that Ticket. They leave {@code ticket}
+        // null, which is why it is initialized rather than left to definite assignment.
+        Ticket<V> ticket = null;
+        Status early = null;
+        V readyValue = null;
         synchronized (lock) {
-            if (closed) return new Ticket<V>(Status.REJECTED_CLOSED, null, null, null);
-            Cached<V> hit = cache.get(key);
-            if (hit != null) {
-                counters[HITS].incrementAndGet();
-                // No subscription, so nothing to cancel and no reason to keep the cache reachable
-                // from a ticket whose whole lifetime is this return value.
-                return new Ticket<V>(Status.READY, hit.value, null, null);
-            }
-            counters[MISSES].incrementAndGet();
-            Flight<K, V> joined = flights.get(key);
-            if (joined != null && !joined.cancelled) {
-                sub = new Sub<K, V>(subscriber);
-                joined.subscribers.add(sub);
-                sub.flight = joined;
-                counters[JOINS].incrementAndGet();
-                return new Ticket<V>(Status.JOINED, null, sub, this);
-            }
-            // A flight told to stop (every subscriber left, abandonRunning) is replaced rather than joined;
-            // it ends on its own and only removes the map entry if the entry is still itself.
-            boolean rejected = false;
-            Flight<K, V> dropped = null;
-            if (joined == null && flights.size() >= maxFlights) {
-                dropped = dropOneAbandoned();
-                rejected = dropped == null;
-            }
-            if (rejected) {
-                counters[REJECTED].incrementAndGet();
-                ticket = new Ticket<V>(Status.REJECTED_CAPACITY, null, null, null);
+            if (closed) {
+                early = Status.REJECTED_CLOSED;
             } else {
-                if (dropped != null && dropped.task != null) {
-                    unqueue = new ArrayList<Runnable>(1);
-                    unqueue.add(dropped.task);
+                Cached<V> hit = cache.get(key);
+                if (hit != null) {
+                    counters[HITS].incrementAndGet();
+                    // No subscription, so nothing to cancel and no reason to keep the cache
+                    // reachable from a ticket whose whole lifetime is this return value.
+                    readyValue = hit.value;
+                    early = Status.READY;
+                } else {
+                    counters[MISSES].incrementAndGet();
+                    Flight<K, V> joined = flights.get(key);
+                    if (joined != null && !joined.cancelled) {
+                        sub = new Sub<K, V>(subscriber);
+                        joined.subscribers.add(sub);
+                        sub.flight = joined;
+                        counters[JOINS].incrementAndGet();
+                        return new Ticket<V>(Status.JOINED, null, sub, this);
+                    }
+                    // A flight told to stop (every subscriber left, abandonRunning) is replaced rather than joined;
+                    // it ends on its own and only removes the map entry if the entry is still itself.
+                    boolean rejected = false;
+                    Flight<K, V> dropped = null;
+                    if (joined == null && flights.size() >= maxFlights) {
+                        dropped = dropOneAbandoned();
+                        rejected = dropped == null;
+                    }
+                    if (rejected) {
+                        counters[REJECTED].incrementAndGet();
+                        ticket = new Ticket<V>(Status.REJECTED_CAPACITY, null, null, null);
+                    } else {
+                        if (dropped != null && dropped.task != null) {
+                            unqueue = new ArrayList<Runnable>(1);
+                            unqueue.add(dropped.task);
+                        }
+                        sub = new Sub<K, V>(subscriber);
+                        start = new Flight<K, V>(key, producer);
+                        start.subscribers.add(sub);
+                        sub.flight = start;
+                        flights.put(key, start);
+                        counters[STARTED].incrementAndGet();
+                        ticket = new Ticket<V>(Status.STARTED, null, sub, this);
+                    }
                 }
-                sub = new Sub<K, V>(subscriber);
-                start = new Flight<K, V>(key, producer);
-                start.subscribers.add(sub);
-                sub.flight = start;
-                flights.put(key, start);
-                counters[STARTED].incrementAndGet();
-                ticket = new Ticket<V>(Status.STARTED, null, sub, this);
             }
         }
+        if (early != null) return new Ticket<V>(early, readyValue, null, null);
         removeFromQueue(unqueue);
         if (start == null) return ticket;
         final Flight<K, V> flight = start;
@@ -635,7 +646,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
                 accepted = owner.post(new Runnable() {
                     @Override public void run() { deliver(sub, value, failure); }
                 });
-            } catch (RuntimeException rejected) {
+            } catch (Throwable rejected) {
                 accepted = false;
             }
             if (!accepted) {
@@ -701,7 +712,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
         for (Eviction<K, V> eviction : evicted) {
             try {
                 listener.onEvicted(eviction.key, eviction.value, eviction.reason);
-            } catch (RuntimeException failure) {
+            } catch (Throwable failure) {
                 counters[LISTENER_FAILURES].incrementAndGet();
             }
         }

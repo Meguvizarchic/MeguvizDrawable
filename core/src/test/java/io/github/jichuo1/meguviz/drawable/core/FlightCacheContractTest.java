@@ -29,6 +29,8 @@ final class FlightCacheContractTest {
         staleGenerationIsDroppedButCached();
         failuresAreSharedAndNotCached();
         executorFailureIsNotARefusal();
+        posterErrorIsCountedAndDoesNotLeak();
+        evictionListenerErrorIsCountedNotThrown();
         if (stress()) {
             cancellation();
             flightLimitAndAbandonedWork();
@@ -455,6 +457,71 @@ final class FlightCacheContractTest {
                 "the joined subscriber gets the failure and the caller got the exception: " + joined.events);
     }
 
+    /**
+     * An {@link Error} (not only a {@link RuntimeException}) from the owner poster must be treated
+     * like a refusal: the subscriber is counted stale and released, the remaining subscribers are
+     * still posted, and nothing escapes the delivery loop.
+     */
+    private static void posterErrorIsCountedAndDoesNotLeak() throws Exception {
+        final Env env = new Env();
+        final AtomicInteger posts = new AtomicInteger();
+        final FlightCache.OwnerPoster poster = new FlightCache.OwnerPoster() {
+            @Override public boolean post(Runnable task) {
+                if (posts.getAndIncrement() == 0) throw new Error("poster broken");
+                return env.owner.post(task);
+            }
+        };
+        FlightCache<String, String> cache = FlightCache.<String, String>builder(env.workers, poster).build();
+        Probe first = new Probe("first"), second = new Probe("second");
+        Ticket<String> firstTicket = cache.request("k", env.producer(), first);
+        Ticket<String> secondTicket = cache.request("k", env.producer(), second);
+        check(firstTicket.status() == Status.STARTED && secondTicket.status() == Status.JOINED,
+                "one flight collects both subscribers");
+        env.workers.runAll();
+        check(posts.get() == 2, "both subscribers were offered to the owner");
+        env.owner.drain();
+        check(first.events.isEmpty() && second.events.equals(listOf("ready:v-k")),
+                "the subscriber after the failed post is still delivered");
+        FlightCache.Stats stats = cache.stats();
+        check(stats.droppedStale == 1 && stats.delivered == 1 && stats.flights == 0,
+                "the failed post is stale and the other delivery counts: " + stats);
+        Object firstSub = subscriptionOf(firstTicket);
+        Object secondSub = subscriptionOf(secondTicket);
+        check(firstSub != null && secondSub != null, "both tickets carry a subscription");
+        check(field(firstSub.getClass(), "subscriber").get(firstSub) == null
+                && field(firstSub.getClass(), "flight").get(firstSub) == null
+                && field(secondSub.getClass(), "subscriber").get(secondSub) == null
+                && field(secondSub.getClass(), "flight").get(secondSub) == null,
+                "neither terminal subscription keeps the subscriber or the flight alive");
+    }
+
+    /**
+     * An {@link Error} from the eviction listener is counted like any other listener failure and
+     * never propagates into the cache's caller.
+     */
+    private static void evictionListenerErrorIsCountedNotThrown() {
+        Env env = new Env();
+        final AtomicInteger calls = new AtomicInteger();
+        FlightCache<String, String> cache = FlightCache.<String, String>builder(env.workers, env.owner)
+                .maxEntries(1)
+                .evictionListener(new FlightCache.EvictionListener<String, String>() {
+                    @Override public void onEvicted(String key, String value, EvictionReason reason) {
+                        calls.incrementAndGet();
+                        throw new Error("listener broken");
+                    }
+                }).build();
+        cache.request("a", env.producer(), new Probe("a"));
+        env.workers.runAll();
+        env.owner.drain();
+        cache.request("b", env.producer(), new Probe("b"));
+        env.workers.runAll();
+        env.owner.drain();
+        check(calls.get() == 1 && cache.stats().listenerFailures == 1,
+                "one eviction reached the listener and its Error was counted: " + cache.stats());
+        check(cache.peek("b") != null && cache.peek("a") == null,
+                "the cache still evicts and keeps working after a listener Error");
+    }
+
     private static void posterRefusal() {
         Env env = new Env();
         FlightCache<String, String> cache = env.builder().build();
@@ -663,6 +730,10 @@ final class FlightCacheContractTest {
         Field value = type.getDeclaredField(name);
         value.setAccessible(true);
         return value;
+    }
+
+    private static Object subscriptionOf(Ticket<?> ticket) throws Exception {
+        return field(Ticket.class, "subscription").get(ticket);
     }
 
     private static List<String> listOf(String... values) {
