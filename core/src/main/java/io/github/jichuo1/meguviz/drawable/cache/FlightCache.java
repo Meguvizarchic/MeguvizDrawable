@@ -306,6 +306,12 @@ public final class FlightCache<K, V> implements AutoCloseable {
      * Returns the cached value, joins the flight for {@code key}, or starts one. For
      * {@link Status#STARTED} and {@link Status#JOINED}, exactly one of the subscriber's callbacks
      * follows on the owner thread unless it is cancelled, stale or the cache is closed.
+     * <p>
+     * If the executor refuses the task with a {@link RejectedExecutionException}, the flight is
+     * rolled back and {@link Status#REJECTED_CAPACITY} is returned. Any other
+     * {@link RuntimeException} (or an {@link Error}) from the executor rolls the flight back,
+     * delivers the failure to the subscribers that joined in the meantime, and is then rethrown
+     * to the caller.
      */
     public Ticket<V> request(K key, Producer<K, V> producer, Subscriber<V> subscriber) {
         Objects.requireNonNull(key, "key");
@@ -373,21 +379,36 @@ public final class FlightCache<K, V> implements AutoCloseable {
         flight.task = task;
         try {
             workers.execute(task);
-        } catch (RejectedExecutionException refused) {
+        } catch (Throwable thrown) {
+            // A custom executor may fail for a reason that is not a capacity refusal (an
+            // IllegalStateException, a NullPointerException, ...). The host cannot treat that as a
+            // rejection, so the flight is rolled back exactly like a refusal and the original
+            // exception is rethrown: a flight left behind would never run, and every later request
+            // for the key would join it and never be called back. Errors are rolled back and
+            // rethrown for the same reason.
             List<Sub<K, V>> others;
             synchronized (lock) {
+                // An executor may run the task synchronously and only then throw; the flight is
+                // then already finished and must not be accounted as a capacity refusal.
+                boolean ownsQueuedFlight = flights.get(key) == flight && flight.state == FlightState.QUEUED;
                 if (flights.get(key) == flight) flights.remove(key);
                 flight.state = FlightState.DONE;
                 flight.producer = null;
                 flight.task = null;
-                counters[STARTED].decrementAndGet();
-                counters[REJECTED].incrementAndGet();
+                if (ownsQueuedFlight) {
+                    counters[STARTED].decrementAndGet();
+                    counters[REJECTED].incrementAndGet();
+                }
                 flight.subscribers.remove(sub);
-                others = drain(flight);
+                others = ownsQueuedFlight ? drain(flight) : java.util.Collections.<Sub<K, V>>emptyList();
             }
-            // Requests that joined in the meantime were promised a callback; they get the refusal.
-            deliverAll(others, null, refused);
-            return new Ticket<V>(Status.REJECTED_CAPACITY, null, null, null);
+            // Requests that joined in the meantime were promised a callback; they get the failure.
+            deliverAll(others, null, thrown);
+            if (thrown instanceof Error) throw (Error) thrown;
+            if (thrown instanceof RejectedExecutionException) {
+                return new Ticket<V>(Status.REJECTED_CAPACITY, null, null, null);
+            }
+            throw (RuntimeException) thrown;
         }
         return ticket;
     }

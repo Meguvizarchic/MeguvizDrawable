@@ -28,6 +28,7 @@ final class FlightCacheContractTest {
         concurrentRequestsShareOneFlight();
         staleGenerationIsDroppedButCached();
         failuresAreSharedAndNotCached();
+        executorFailureIsNotARefusal();
         if (stress()) {
             cancellation();
             flightLimitAndAbandonedWork();
@@ -418,6 +419,40 @@ final class FlightCacheContractTest {
                 "a refusing executor is a rejection that leaves no flight behind");
         env.workers.refuse = false;
         check(cache.request("k", env.producer(), new Probe("again")).status() == Status.STARTED, "the key is usable afterwards");
+    }
+
+    /**
+     * A custom executor may fail for a reason that is not a capacity refusal (an
+     * {@link IllegalStateException}, a {@link NullPointerException}, ...). The flight must be rolled
+     * back so the key is usable again, the original exception must propagate because the host
+     * cannot treat it as a rejection, and a subscriber that joined in the meantime must be told.
+     */
+    private static void executorFailureIsNotARefusal() {
+        final Env env = new Env();
+        final FlightCache.Producer<String, String> producer = env.producer();
+        final Probe joined = new Probe("joined");
+        final FlightCache<String, String>[] holder = new FlightCache[1];
+        final Ticket<String>[] joinedTicket = new Ticket[1];
+        // The executor joins one subscriber into the in-flight flight and only then fails with a
+        // non-refusal exception, so the rollback has an "others" list to notify.
+        Executor broken = new Executor() {
+            @Override public void execute(Runnable task) {
+                joinedTicket[0] = holder[0].request("k", producer, joined);
+                throw new IllegalStateException("executor broken");
+            }
+        };
+        FlightCache<String, String> cache = FlightCache.<String, String>builder(broken, env.owner).build();
+        holder[0] = cache;
+        Probe first = new Probe("first");
+        expect(IllegalStateException.class, new Runnable() { public void run() {
+            cache.request("k", producer, first);
+        }});
+        check(cache.stats().flights == 0 && cache.peek("k") == null,
+                "a non-refusal executor failure rolls the flight back: " + cache.stats());
+        env.owner.drain();
+        check(joinedTicket[0] != null && joinedTicket[0].status() == Status.JOINED
+                && joined.events.equals(listOf("failed:executor broken")) && first.events.isEmpty(),
+                "the joined subscriber gets the failure and the caller got the exception: " + joined.events);
     }
 
     private static void posterRefusal() {
