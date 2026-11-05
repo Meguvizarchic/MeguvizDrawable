@@ -89,6 +89,12 @@ when (ticket.status()) {
   只在所有者线程安装（非所有者线程投递被 scope 拒绝）、失败/拒绝可观测、取消/关闭后共享值仍可
   `peek` 到。
 
+## 执行器失败回滚（2026-11-05）
+
+`request` 对 `workers.execute(task)` 的失败统一回滚：`RejectedExecutionException` 仍返回 `REJECTED_CAPACITY`；其它 `RuntimeException` 与 `Error`（自定义执行器的 `IllegalStateException`、`NullPointerException`、`StackOverflowError` 等）在回滚后**原样重抛**，因为宿主无法把它当作容量拒绝。回滚动作与原拒绝路径逐字段一致（移除飞行、`state=DONE`、`producer/task=null`、`STARTED--`、`REJECTED++`、移除当前 sub、`drain` 并通知加入者）；若执行器已经同步跑完任务再抛，则不重复计入容量拒绝。若不回滚，该飞行会永久留在 `flights` 中，后续同键请求会 JOIN 它并同样永不回调。
+
+合同：`FlightCacheContractTest.executorFailureIsNotARefusal`（自定义执行器先 JOIN 一个订阅者再抛 `IllegalStateException`；断言异常传播、`stats().flights == 0`、`peek == null`、加入者收到失败、首订阅者无回调）。`:core:contractTest` 109 项、`check`、`contractStress`（447,189 项）与 `dump_abi.py` 基线一致均通过；未修复版本在同一用例上失败（`flights=1`）。
+
 ## 票据生命周期与长期持有
 
 当前源码候选在完成、取消、投递拒绝和关闭时及时断开订阅者与飞行的生产者引用；READY/拒绝票据没有可取消订阅，也不再保存 cache 引用。已经排入 owner 队列但在关闭前尚未开始交付的结果，关闭后会丢弃并计入 `droppedStale`。
