@@ -167,6 +167,14 @@ public final class ContractInstrumentation extends Instrumentation {
         check(bitmap(second).getPixel(10, 10) == Color.BLUE, "owner isolation");
         first.setState(new int[0]);
         check(bitmap(first).getPixel(10, 10) == Color.BLUE, "state restored");
+        // The compiled table is memoized on first stateful lookup; repeated round trips must keep
+        // matching the direct matcher (same rule order, positive and negative conditions).
+        for (int round = 0; round < 8; round++) {
+            first.setState(new int[] { pressed });
+            check(bitmap(first).getPixel(10, 10) == Color.RED, "memoized table pressed round " + round);
+            first.setState(new int[0]);
+            check(bitmap(first).getPixel(10, 10) == Color.BLUE, "memoized table default round " + round);
+        }
         check(first.getConstantState() != null, "static recipe has reconstructible constant state");
     }
     private void reusedStateArrayAndDistinctKeys() {
