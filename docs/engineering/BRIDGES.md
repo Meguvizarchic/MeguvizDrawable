@@ -28,7 +28,7 @@ Lumen 不进 Central 包：`lumen-engine` 只发布在 JitPack，Central 上的�
 |---|---|
 | `lumen-engine-1.5.5.aar` | `07480e39d154f731b1dd0daa394a4e69a33ccc499c5b254791f650db146cf8c0` |
 | `meguviz-android-runtime-1.2.0.aar` | `a37b19835a6f459145b878a7936ebf46f13aafc99e45442980a6d59192cfab3c`（本地候选） |
-| `meguviz-ui-core-1.2.0.aar` | `e3db238a8ca3e801b61e50c4eb440eb90fad2c349cc98400e8f536154348a845`（本地候选） |
+| `meguviz-ui-core-1.2.0.aar` | `bbce257fa8f3faac901fa3f733335f334761f6728674aff48fc272ef1a296d86`（本地候选） |
 
 `meguviz-android-runtime` 与 `meguviz-ui-core` 的 1.2.0 尚未发布，上表是本地候选的字节；发布后须与 Central 上的字节重新核对。
 
