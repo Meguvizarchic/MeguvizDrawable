@@ -94,7 +94,9 @@ Lumen 不进 Central 包：`lumen-engine` 只发布在 JitPack，Central 上的�
 本库决定写什么：
 
 - 相等的配方由属性绑定跳过；`invalidate()` 后重写同一配方与密度时保留已安装的 drawable，不再新建。
-- 宿主替换背景后 `isOwned` 立即为 false，后续写入不覆盖宿主的 drawable；`reclaim()` 显式夺回。
+- View 密度与上次写入不同时不再按值跳过：下一次提交即使配方相等也会写入，并按新密度重建 drawable。
+- 宿主替换背景后 `isOwned` 立即为 false，后续写入不覆盖宿主的 drawable；`reclaim()` 显式夺回，并清掉绑定的等值缓存，
+  所以夺回后重新提交宿主接管期间的同一配方也会生效。
 - 与 Lumen 的 `reserveProperties("background")` 或另一个绑定冲突时，两种顺序都由 MeguvizUI 自己的注册表拒绝。
 - View 释放、节点 `rebind` 或会话关闭会关闭绑定，并仅在背景仍是本绑定安装的那个时清除它。
 

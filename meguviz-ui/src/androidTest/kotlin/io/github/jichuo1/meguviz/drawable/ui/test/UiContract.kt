@@ -40,6 +40,8 @@ internal class UiContract(private val instrumentation: Instrumentation) {
             writesThroughTheScheduler()
             skipsEqualRecipesAndKeepsDrawables()
             hostReplacementIsNotOverwritten()
+            reclaimWithTheLastSubmittedRecipe()
+            densityChangeRebuildsAnEqualRecipe()
             propertyConflictsAreRefused()
             releaseAndRebindClose()
             sessionCloseClearsTheBackground()
@@ -117,6 +119,46 @@ internal class UiContract(private val instrumentation: Instrumentation) {
         submitAndSettle(background, recipe(Color.CYAN))
         check(main { background.isOwned } && drawnRecipe(f.view) == recipe(Color.CYAN), "reclaim takes the property back on the next write")
         main { f.session.close() }
+    }
+
+    /** The common case: the caller reclaims and resubmits the recipe it already had. */
+    private fun reclaimWithTheLastSubmittedRecipe() {
+        val f = fixture()
+        val background = main { f.session.bindRecipeBackground(f.ref) }
+        submitAndSettle(background, recipe(Color.RED))
+        val business: Drawable = ColorDrawable(Color.GREEN)
+        main { f.view.background = business }
+        submitAndSettle(background, recipe(Color.MAGENTA))
+        check(background(f.view) === business, "the write while the host owns the background leaves it alone")
+        main { background.reclaim() }
+        submitAndSettle(background, recipe(Color.MAGENTA))
+        check(main { background.isOwned } && drawnRecipe(f.view) == recipe(Color.MAGENTA),
+            "reclaim followed by the same recipe takes the property back instead of being skipped")
+        main { f.session.close() }
+    }
+
+    private fun densityChangeRebuildsAnEqualRecipe() {
+        val f = fixture()
+        val background = main { f.session.bindRecipeBackground(f.ref) }
+        submitAndSettle(background, recipe(Color.RED))
+        val installed = background(f.view)
+        val metrics = main { f.view.resources.displayMetrics }
+        val originalDpi = main { metrics.densityDpi }
+        val originalDensity = main { metrics.density }
+        try {
+            // Simulates a density change the host handles without recreating the View.
+            main { metrics.densityDpi = originalDpi * 2; metrics.density = originalDensity * 2 }
+            submitAndSettle(background, recipe(Color.RED))
+            check(main { background.writes } == 2L && background(f.view) !== installed && drawnRecipe(f.view) == recipe(Color.RED),
+                "an equal recipe at a new density is written and rebuilds the drawable")
+            val rebuilt = background(f.view)
+            submitAndSettle(background, recipe(Color.RED))
+            check(main { background.skips } == 1L && background(f.view) === rebuilt,
+                "at the unchanged new density an equal recipe is skipped again")
+        } finally {
+            main { metrics.densityDpi = originalDpi; metrics.density = originalDensity }
+            main { f.session.close() }
+        }
     }
 
     private fun propertyConflictsAreRefused() {

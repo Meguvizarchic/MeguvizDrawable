@@ -26,7 +26,9 @@ public const val BACKGROUND_PROPERTY: String = "background"
  * theme and resource epochs that make a pending write stale). This class decides *what* a write
  * does, using the drawable ownership rules:
  * - an equal recipe is skipped by the property binding, and a repeated write of the same recipe at
- *   the same density keeps the installed drawable instead of building another;
+ *   the same density keeps the installed drawable instead of building another; once the View's
+ *   density differs from the last write, an equal recipe is no longer skipped, so the next submit
+ *   rebuilds the drawable for the new density;
  * - if business code replaces the background, the next write neither overwrites it nor pretends it
  *   still owns it: [isOwned] turns false until [reclaim] is called;
  * - releasing the View, rebinding it, or closing the session closes this object, which clears the
@@ -46,12 +48,21 @@ public class RecipeBackground internal constructor(
         var written: Boolean = false
         var lost: Boolean = false
         var reclaim: Boolean = false
+        /** densityDpi of the last write; 0 before the first one. */
+        private var writtenDensityDpi = 0
+
+        /**
+         * Whether the property binding may skip an equal recipe. It must not once the density has
+         * changed: the skip happens before [write], so the revision check there would never run.
+         */
+        fun densityUnchanged(): Boolean = writtenDensityDpi == view.resources.displayMetrics.densityDpi
 
         fun write(recipe: DrawingRecipe) {
             val metrics = view.resources.displayMetrics
             val density = metrics.density
             // A density change is a new revision, so the next write builds a drawable for it.
             val revision = metrics.densityDpi.toLong()
+            writtenDensityDpi = metrics.densityDpi
             if (!written) {
                 val result = slot.ensure(view.background, recipe, revision) { RecipeDrawable(recipe, density) }
                 if (result == SlotBinding.Ensure.NOT_OWNED) lost = true else written = true
@@ -82,10 +93,16 @@ public class RecipeBackground internal constructor(
      */
     public val isOwned: Boolean get() = writer.owned()
 
-    /** Takes the property back: the next write installs the submitted recipe over whatever is there. */
+    /**
+     * Takes the property back: the next write installs the submitted recipe over whatever is there,
+     * including the recipe that was last submitted while the host owned the background.
+     */
     public fun reclaim() {
         check(writer.written) { "nothing was installed yet" }
         writer.reclaim = true
+        // Writes made while the host owned the background still updated the binding's cache;
+        // without this, resubmitting that same recipe would be skipped and never take the slot back.
+        binding.invalidate()
     }
 
     override fun close() {
@@ -124,6 +141,7 @@ public fun <V : View> UiSession.bindRecipeBackground(
             ownership = PropertyOwnership.EXCLUSIVE,
             coalescible = true,
             equivalent = { previous, next -> previous == next },
+            comparisonAllowed = { writer.densityUnchanged() },
             resourceSensitive = true,
             write = { _, recipe -> writer.write(recipe) },
         )
