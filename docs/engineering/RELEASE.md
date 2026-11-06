@@ -6,13 +6,14 @@
 |---|---|---|
 | `meguviz-drawable-core` | 1.0.0 | **已在 Central**（2026-10-28），字节 `6115921e…`，不含 `BindingScope.claim` |
 | `meguviz-drawable-android` | 1.0.0 | **已在 Central**，字节与本仓库当前构建逐字节一致（`e9a74e01…`） |
-| `meguviz-drawable-core` | 1.1.0 | 未发布；仓库当前的 core，比 1.0.0 多 `BindingScope.claim` 与 `FlightCache`，没有删除或改签名 |
-| `meguviz-drawable-android` | 1.1.0 | 未发布；比 1.0.0 多 `MainThreadPoster`、`BitmapWeigher`，没有删除或改签名 |
-| `-compose`、`-meguviz-android`、`-meguviz-ui` | 1.0.0 | 待发布 |
-| `-lumen` | 1.0.0 | 不进 Central：依赖只发布在 JitPack 的 `lumen-engine` |
+| `meguviz-drawable-core` | 1.2.0 | 未发布；仓库当前的 core，比 1.0.0 多 `BindingScope.claim`、`FlightCache` 与 `StateMatcherCache`，没有删除或改签名（1.1.0 从未发布，已被取代） |
+| `meguviz-drawable-android` | 1.2.0 | 未发布；比 1.0.0 多 `MainThreadPoster`、`BitmapWeigher`，没有删除或改签名（1.1.0 从未发布，已被取代） |
+| `-compose`、`-meguviz-ui` | 1.1.0 | 待发布；`-meguviz-ui` 含 `reclaim()` 与密度变化重建修复（1.0.0 未发布，已被取代） |
+| `-meguviz-android` | 1.1.0 | 待发布；依赖 `meguviz-android-runtime` 1.2.0，须等它先上 Central |
+| `-lumen` | 1.1.0 | 不进 Central：依赖只发布在 JitPack 的 `lumen-engine` |
 
 Central 的发布不可替换、不可撤销。各模块独立定版，版本取自它自己的 `build.gradle.kts`：已发布的版本号不再改字节，
-有变化就升版本（core 与 android 新增 API，按语义化版本升到 1.1.0）。`meguviz-drawable-lumen` 依赖 `claim`，因此显式依赖 core，待 Lumen 上 Central 且 core 1.1.0 发布后再纳入。
+有变化就升版本（core 与 android 新增 API，按语义化版本升级，当前为 1.2.0）。`meguviz-drawable-lumen` 依赖 `claim`，因此显式依赖 core，待 Lumen 上 Central 且 core 1.2.0 发布后再纳入。
 
 ## 生成上传包
 

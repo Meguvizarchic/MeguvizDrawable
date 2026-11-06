@@ -5,7 +5,7 @@ plugins {
     signing
 }
 
-version = "1.0.0"
+version = "1.1.0"
 description = "Compose Painter and state helpers that render Meguviz drawing recipes through the Android drawable backend."
 
 android {

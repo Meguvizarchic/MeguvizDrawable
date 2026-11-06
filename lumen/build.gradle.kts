@@ -4,7 +4,7 @@ plugins {
     signing
 }
 
-version = "1.0.0"
+version = "1.1.0"
 description = "Narrow bridge that gives Lumen surface bindings drawable-scope ownership, idempotent updates and release."
 
 android {

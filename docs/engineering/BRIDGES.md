@@ -8,14 +8,15 @@
 
 ## 制品一览
 
-| 制品 | 上游 | minSdk | 语言 | 进入 Central 包（1.0.0） |
+| 制品 | 上游 | minSdk | 语言 | 进入 Central 包（1.1.0） |
 |---|---|---|---|---|
 | `meguviz-drawable-compose` | Compose BOM 2026.09.00（运行时、ui、ui-graphics 解析为 1.12.1），Kotlin 2.4.21 | 23 | Kotlin | 是 |
-| `meguviz-drawable-meguviz-android` | `meguviz-android-runtime` 1.0.0 | 27 | Java | 是 |
+| `meguviz-drawable-meguviz-android` | `meguviz-android-runtime` 1.2.0（含共享唤醒停摆修复，尚未发布） | 27 | Java | 是，须等 runtime 1.2.0 先发布 |
 | `meguviz-drawable-meguviz-ui` | `meguviz-ui-core` 1.0.0 | 27 | Kotlin | 是 |
 | `meguviz-drawable-lumen` | `lumen-engine` 1.5.5（JitPack 坐标） | 27 | Java | 否 |
 
-Compose、MeguvizAndroid、MeguvizUI 三个桥只依赖已发布的 `meguviz-drawable-android:1.0.0`（Central 上），可以单独发布；
+Compose、MeguvizAndroid、MeguvizUI 三个桥只依赖已发布的 `meguviz-drawable-android:1.0.0`（Central 上）；
+其中 MeguvizAndroid 桥另依赖 `meguviz-android-runtime` 1.2.0，它上 Central 之前该桥既不能在默认仓库下解析，也不能发布；
 上传前用 `-Pmeguviz.againstPublished=true` 针对已发布字节再构建并测试一次。
 
 Lumen 不进 Central 包：`lumen-engine` 只发布在 JitPack，Central 上的制品不应依赖 Central 用户无法解析的坐标

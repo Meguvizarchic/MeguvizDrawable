@@ -4,7 +4,7 @@ plugins {
     signing
 }
 
-version = "1.0.0"
+version = "1.1.0"
 description = "Binds Meguviz drawable scopes to MeguvizAndroid lifecycle, resource and frame-scheduling authorities."
 
 android {

@@ -26,7 +26,7 @@ android {
 }
 
 dependencies {
-    implementation("io.github.jichuo1.meguviz:meguviz-drawable-android:1.1.0")
+    implementation("io.github.jichuo1.meguviz:meguviz-drawable-android:1.2.0")
 }
 
 tasks.register("verifyCandidateResolution") {
@@ -46,8 +46,8 @@ tasks.register("verifyCandidateResolution") {
             "${id.group}:${id.module}:${id.version}"
         }.toSet()
         val expected = setOf(
-            "io.github.jichuo1.meguviz:meguviz-drawable-core:1.1.0",
-            "io.github.jichuo1.meguviz:meguviz-drawable-android:1.1.0"
+            "io.github.jichuo1.meguviz:meguviz-drawable-core:1.2.0",
+            "io.github.jichuo1.meguviz:meguviz-drawable-android:1.2.0"
         )
         check(actual == expected) { "Unexpected runtime artifacts: $actual" }
         check(artifacts.size == expected.size) { "Unexpected duplicate runtime artifacts" }

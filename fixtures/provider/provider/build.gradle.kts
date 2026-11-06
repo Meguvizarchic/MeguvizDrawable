@@ -5,7 +5,7 @@ java {
     targetCompatibility = JavaVersion.VERSION_1_8
 }
 tasks.withType<JavaCompile>().configureEach { options.release = 8 }
-dependencies { api("io.github.jichuo1.meguviz:meguviz-drawable-core:1.1.0") }
+dependencies { api("io.github.jichuo1.meguviz:meguviz-drawable-core:1.2.0") }
 
 val contractTest = tasks.register<JavaExec>("contractTest") {
     dependsOn(tasks.testClasses)

@@ -23,7 +23,7 @@ tasks.named("check") {
 // :lumen is deliberately absent: lumen-engine is published only through JitPack, and a Central
 // artifact must not depend on one that Central consumers cannot resolve.
 // :core and :android are absent too: 1.0.0 of both is already on Central and a release cannot be
-// replaced. Their working-tree code moves on as 1.1.0 (BindingScope.claim, FlightCache, poster).
+// replaced. Their working-tree code moves on as 1.2.0 (BindingScope.claim, FlightCache, poster); 1.1.0 was never published.
 val centralModules = listOf(":compose", ":meguviz-android", ":meguviz-ui")
 
 val cleanCentralMaven = tasks.register<Delete>("cleanCentralMaven") {
