@@ -4,7 +4,7 @@ plugins {
     signing
 }
 
-version = "1.1.0"
+version = "1.2.0"
 description = "Narrow bridge that gives Lumen surface bindings drawable-scope ownership, idempotent updates and release."
 
 android {
@@ -26,7 +26,7 @@ android {
 
 dependencies {
     api(project(":android"))
-    // BindingScope.claim exists from core 1.1.0; the released android 1.0.0 alone would resolve core 1.0.0 without it.
+    // BindingScope.claim exists from core 1.2.0 (1.1.0 was never published); the released android 1.0.0 alone would resolve core 1.0.0 without it.
     api(project(":core"))
     api(libs.lumen.engine)
     testImplementation(libs.junit)

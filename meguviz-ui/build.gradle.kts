@@ -4,7 +4,7 @@ plugins {
     signing
 }
 
-version = "1.1.0"
+version = "1.2.0"
 description = "MeguvizUI property adapter that gives a drawing recipe exclusive ownership of a View background."
 
 android {

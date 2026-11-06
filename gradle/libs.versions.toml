@@ -7,7 +7,7 @@ junit = "4.13.2"
 # The base library as released on Maven Central; Central-bound bridges are built against it.
 drawable-android-released = "1.0.0"
 meguviz-android = "1.2.0"
-meguviz-ui = "1.0.0"
+meguviz-ui = "1.2.0"
 
 [libraries]
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
