@@ -1,4 +1,33 @@
+<div align="center">
+
+<img src="docs/brand/MeguvizDrawable.svg" width="96" height="96" alt="MeguvizDrawable">
+
 # MeguvizDrawable
+
+**面向 Android 的 Drawable 库（开发中）**
+
+独立 Java core · Android / Compose 模块 · 家族桥接
+
+<br>
+
+[![License](https://img.shields.io/badge/license-Apache--2.0-00AEEC?style=flat-square&labelColor=2d3a55)](LICENSE)
+[![Language](https://img.shields.io/badge/lang-Java-DEA584?style=flat-square&labelColor=2d3a55)](https://github.com/Meguvizarchic/MeguvizDrawable)
+[![Issues](https://img.shields.io/github/issues/Meguvizarchic/MeguvizDrawable?style=flat-square&labelColor=2d3a55)](https://github.com/Meguvizarchic/MeguvizDrawable/issues)
+
+[License](#license)
+
+</div>
+
+---
+
+<details>
+<summary><b>目录</b></summary>
+
+- [License](#license)
+
+</details>
+
+---
 
 MeguvizDrawable is an Android drawable library under development. Its packages
 use the `io.github.jichuo1.meguviz.drawable` family namespace. The core is a
