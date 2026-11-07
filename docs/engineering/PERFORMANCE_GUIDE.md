@@ -189,6 +189,22 @@ host 探针（`StateMatcherProbe`，1M 次/轮）既有数据：page2 4.9→3.1 
 transforms cache 中真实的 1.2.0 runtime jar 在宿主 JVM 上编译并运行测试。
 未做 Android/ART/设备验证；`project()` 属于 `begin/commit/sync/post` 路径，不是每帧路径。
 
+## 2026-11-07：平台最佳实践对照与渲染约束（调研，无代码改动）
+
+用 Exa 调研了 Drawable `ConstantState`/`mutate`、跨进程 Bitmap 零拷贝、`RenderNode` 绘制快路径、
+`RenderEffect`/`RuntimeShader` 门控与模糊边界。结论用于写死红线，本轮无代码改动：
+
+- 现有 `RecipeDrawable` 的 `ConstantState`/`mutate`、Paint/Path 复用与惰性 `PreparedMatcher`
+  已符合平台 copy-on-write 最佳实践，不需要重构。
+- 跨进程 Bitmap 走共享内存句柄（`SharedMemory` API 27 / `HardwareBuffer` API 26 /
+  `wrapHardwareBuffer` API 29 / `asShared` API 31），避免 CPU 读回；本库当前没有跨进程位图路径。
+- `RenderNode`（API 29+）只支持硬件 Canvas，仅对大/静态/复杂 Path 值得实验；`drawPath` 是 CPU
+  光栅化路径，非 uniform 圆角受 API 限制只能如此。
+- `RenderEffect`（API 31+）/`RuntimeShader`（API 33+）必须门控并优先复用 Lumen；API 27–30
+  回退 scrim/预模糊；不引入 `BlurMaskFilter` 与 RenderScript；基础库不得引入 AndroidX。
+- 模糊边界：`sigma = 0.57735·r + 0.5`；Skia 大半径内建降采样（`kMaxLinearSigma = 4`，半径约 27），
+  本库半八度 8 档的方向正确。
+
 ## 参考（直接阅读，非外部研究服务）
 
 - Go `golang.org/x/sync/singleflight`（https://pkg.go.dev/golang.org/x/sync/singleflight）：同键并发
