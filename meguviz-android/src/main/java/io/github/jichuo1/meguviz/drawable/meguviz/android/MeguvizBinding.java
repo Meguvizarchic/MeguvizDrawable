@@ -114,6 +114,17 @@ public final class MeguvizBinding implements AutoCloseable {
     private final BindingScope scope;
     private final Registration registration;
     private final Map<String, BoundedMailbox.Slot> slots = new HashMap<String, BoundedMailbox.Slot>();
+    /**
+     * The resource and theme domains of {@link #resources}, captured once. {@code ResourceState}
+     * holds them in final fields, so the array contents never change; {@link BindingLease} clones
+     * the array it is given, so sharing this one is safe.
+     */
+    private final EpochDomain[] allDependencies;
+    /** Last stamp observed for each domain of {@link #allDependencies}; null until first read. */
+    private final EpochDomain.Stamp[] dependencyStamps;
+    private long projectedResourceRevision;
+    private long projectedRegistryRevision;
+    private BindingEnvironment projectedEnvironment;
     private boolean closed;
 
     private MeguvizBinding(LifecycleScope lifecycle, ResourceState resources, BoundedMailbox mailbox,
@@ -124,6 +135,8 @@ public final class MeguvizBinding implements AutoCloseable {
         this.registry = registry;
         this.dispatcher = lifecycle.dispatcher();
         dispatcher.checkOwner();
+        allDependencies = resources.dependencies(ResourceState.ALL);
+        dependencyStamps = new EpochDomain.Stamp[allDependencies.length];
         scope = new BindingScope(ownerEpoch);
         scope.bind(project());
         registration = lifecycle.own(new Registration(dispatcher, new Runnable() {
@@ -149,14 +162,42 @@ public final class MeguvizBinding implements AutoCloseable {
     /** The drawable scope; create slots with {@link BindingScope#slot} and own resources through it. */
     public BindingScope scope() { return scope; }
 
-    /** The current environment: resource plus theme epochs and the registry revision. */
+    /**
+     * The current environment: resource plus theme epochs and the registry revision.
+     *
+     * <p>The domains are final and their stamps are immutable, so a stamp is re-read only when
+     * {@link EpochDomain#matches} reports a change. An unchanged projection returns the same
+     * immutable {@link BindingEnvironment} instance instead of allocating a new one; a caller that
+     * keeps the old instance still holds a valid snapshot, and {@link BindingScope} compares by
+     * value. This keeps the per-request path (begin/commit/sync) free of the array, stamp and
+     * environment allocations the uncached projection would make.
+     */
     public BindingEnvironment project() {
         dispatcher.checkOwner();
+        EpochDomain[] domains = allDependencies;
+        EpochDomain.Stamp[] stamps = dependencyStamps;
         long resourceRevision = 0;
-        for (EpochDomain domain : resources.dependencies(ResourceState.ALL)) {
-            resourceRevision += domain.stamp().epoch();
+        for (int i = 0; i < domains.length; i++) {
+            EpochDomain domain = domains[i];
+            EpochDomain.Stamp stamp = stamps[i];
+            if (!domain.matches(stamp)) {
+                stamp = domain.stamp();
+                stamps[i] = stamp;
+            }
+            resourceRevision += stamp.epoch();
         }
-        return new BindingEnvironment(resourceRevision & Long.MAX_VALUE, registry.revision());
+        resourceRevision &= Long.MAX_VALUE;
+        long registryRevision = registry.revision();
+        BindingEnvironment cached = projectedEnvironment;
+        if (cached != null && resourceRevision == projectedResourceRevision
+                && registryRevision == projectedRegistryRevision) {
+            return cached;
+        }
+        BindingEnvironment environment = new BindingEnvironment(resourceRevision, registryRevision);
+        projectedResourceRevision = resourceRevision;
+        projectedRegistryRevision = registryRevision;
+        projectedEnvironment = environment;
+        return environment;
     }
 
     /** The density the authoritative snapshot describes, in the unit {@code RecipeDrawable} expects. */
@@ -206,7 +247,7 @@ public final class MeguvizBinding implements AutoCloseable {
         sync();
         requireOpen();
         RequestStamp stamp = scope.begin(key);
-        BindingLease lease = lifecycle.lease(LifecycleScope.ALL, resources.dependencies(ResourceState.ALL));
+        BindingLease lease = lifecycle.lease(LifecycleScope.ALL, allDependencies);
         return new Request(this, stamp, lease, mailbox == null ? null : slotFor(key));
     }
 

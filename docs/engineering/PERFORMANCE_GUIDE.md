@@ -159,6 +159,36 @@ host 探针（`StateMatcherProbe`，1M 次/轮）既有数据：page2 4.9→3.1 
 验证：`:core:contractTest`、`check`、`:android:compileDebugJavaWithJavac` 通过；设备像素与
 分配未测，不声称设备收益。
 
+## 2026-11-07：MeguvizBinding 投影缓存（host 验证）
+
+改动（仅 `meguviz-android` 桥模块）：`MeguvizBinding.project()` 原先每次调用都会新建
+`EpochDomain[2]`、两个 `Stamp`、一个 `BindingEnvironment`，`begin()` 还会再建一个依赖数组。
+现在把依赖数组在构造时捕获一次（`ResourceState` 的 `resources`/`theme` 是 final 字段，
+`BindingLease` 会自行克隆数组），按 `EpochDomain.matches` 增量刷新 stamp，并在
+`(resourceRevision, registryRevision)` 未变时复用同一个不可变 `BindingEnvironment`；
+`begin()` 复用同一数组。
+
+`project()` 因此不再调用 `ResourceState.requireOpen()`；资源域已关闭时 `EpochDomain.stamp()`
+仍抛 `IllegalStateException`，而 `sync()` 本来就捕获该异常并关闭绑定，行为保持。
+
+结果（`benchmark/BindingPostAllocationProbe.java`，真实 runtime 1.2.0 jar，宿主 JVM，
+`ThreadMXBean`，3 fork 中位数）：
+
+| 路径 | 改前（默认 EA） | 改后（默认 EA） | 改前（`-XX:-DoEscapeAnalysis`） | 改后（`-XX:-DoEscapeAnalysis`） |
+|---|---|---|---|---|
+| `project()` | 32 | 0 | 104 | 0 |
+| `begin()` | 352 | 328 | 456 | 328 |
+| `begin+post+drain+frame()` | 621.2 | 594.8 | 944 | 712 |
+
+交织时序测量显示改后不慢于改前。
+
+验证：`MeguvizBindingTest` 16/16 通过（含新增的缓存/失效合同用例）；
+`./gradlew --offline --no-daemon check` 与 `-Pmeguviz.profile=android check` 通过。
+桥模块（`meguviz.profile=bridges`）在本机无法用 Gradle 构建：`meguviz-android-runtime:1.2.0`
+尚未发布到 Maven Central，Gradle module cache 里也没有该版本元数据；本次改用 Gradle
+transforms cache 中真实的 1.2.0 runtime jar 在宿主 JVM 上编译并运行测试。
+未做 Android/ART/设备验证；`project()` 属于 `begin/commit/sync/post` 路径，不是每帧路径。
+
 ## 参考（直接阅读，非外部研究服务）
 
 - Go `golang.org/x/sync/singleflight`（https://pkg.go.dev/golang.org/x/sync/singleflight）：同键并发

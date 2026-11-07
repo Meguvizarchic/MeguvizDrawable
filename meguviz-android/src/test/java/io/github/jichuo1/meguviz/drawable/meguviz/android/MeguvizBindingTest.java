@@ -140,6 +140,21 @@ public final class MeguvizBindingTest {
         assertEquals(2f, binding.density(), 0f);
     }
 
+    @Test public void unchangedProjectionReusesTheImmutableEnvironment() {
+        BindingEnvironment first = binding.project();
+        assertSame("an unchanged projection returns the same immutable instance", first, binding.project());
+        resources.invalidateTheme();
+        BindingEnvironment themed = binding.project();
+        assertTrue("a theme change produces a new environment", themed != first);
+        assertTrue(themed.resourceRevision() > first.resourceRevision());
+        assertSame("the new projection is reused until something changes", themed, binding.project());
+        registryRevision.incrementAndGet();
+        BindingEnvironment registry = binding.project();
+        assertTrue("a registry change produces a new environment", registry != themed);
+        assertEquals(registryRevision.get(), registry.registryRevision());
+        assertSame(registry, binding.project());
+    }
+
     @Test public void commitInstallsThroughBothGates() {
         activate();
         MeguvizBinding.Request request = binding.begin("background");
