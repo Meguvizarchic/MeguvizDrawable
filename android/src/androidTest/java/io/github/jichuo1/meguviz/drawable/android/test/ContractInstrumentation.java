@@ -40,10 +40,12 @@ import io.github.jichuo1.meguviz.drawable.model.StrokeSpec;
 public final class ContractInstrumentation extends Instrumentation {
     private int checks;
     private String mode;
+    private Bundle arguments;
     private static volatile int timingSink;
 
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
+        this.arguments = arguments;
         mode = arguments.getString("mode", "contracts");
         start();
     }
@@ -51,6 +53,11 @@ public final class ContractInstrumentation extends Instrumentation {
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
+            if ("r4bench".equals(mode)) {
+                result.putString("stream", r4Benchmark());
+                finish(Activity.RESULT_OK, result);
+                return;
+            }
             if ("benchmark".equals(mode)) {
                 result.putString("stream", benchmarkSameState());
                 finish(Activity.RESULT_OK, result);
@@ -515,6 +522,70 @@ public final class ContractInstrumentation extends Instrumentation {
         return true;
     }
     private void check(boolean ok, String what) { checks++; if (!ok) throw new AssertionError(what); }
+
+    /**
+     * Device-side paired A/B timing with configurable load.
+     *
+     * IMPORTANT — what this actually measures: both drawables are given an IDENTICAL state that
+     * has already been set, so `setState` returns false on every iteration and the state matcher /
+     * `onStateChange` path is never entered. The legacy side is `CloneStateDrawable` (a platform
+     * Drawable that clones the int[] on every call); the candidate is `RecipeDrawable`, which
+     * detects the equal state and returns early. The result therefore compares
+     * "array copy + platform setState" with "array compare + early return" — it is NOT a
+     * measurement of the state-matching algorithm, and must never be reported as one.
+     *
+     * Differences from {@link #benchmarkSameState()} (numbers are NOT comparable): r4ops defaults
+     * to 50000 instead of the hardcoded 500000, warmup is 1 per path instead of 2, and the result
+     * is emitted as one data line. The legacy mode leaves `am instrument -w` without output for
+     * >200 s on a real API 33 device. A controlled falsification run of THIS mode at
+     * `-e r4ops 500000 -e r4pairs 12` returned
+     * `INSTRUMENTATION_RESULT: shortMsg=Process crashed. / INSTRUMENTATION_CODE: 0`
+     * (evidence/device-r4/falsification/r4ops500k.txt): the failure is a process crash under the
+     * ~12 million per-call int[] allocations in CloneStateDrawable.setState, NOT the multi-line
+     * stream format. Keep r4ops at 50000 or lower on this device.
+     *
+     * `-e r4ops N` (1000..500000, default 50000) and `-e r4pairs N` (10..40, default 12) let the
+     * caller pick a load that fits the device; the lower pair bound enforces the frozen protocol's
+     * ">= 10 pairs". Odd pairs reverse the order (AB/BA); one warmup per path is never counted.
+     */
+    private String r4Benchmark() {
+        int ops = intArgument("r4ops", 50000, 1000, 500000);
+        int pairs = intArgument("r4pairs", 12, 10, 40);
+        int[] state = { android.R.attr.state_pressed, android.R.attr.state_enabled };
+        Drawable old = new CloneStateDrawable();
+        RecipeDrawable current = new RecipeDrawable(new DrawingRecipe(ShapeSpec.rectangle(),
+                FillSpec.solid(Color.RED), null, LayoutMetrics.unspecified()), 1f);
+        old.setState(state); current.setState(state);
+        if (!Arrays.equals(old.getState(), current.getState()) || old.setState(state) || current.setState(state)) {
+            throw new AssertionError("r4bench requires identical, unchanged states");
+        }
+        timed(old, state, ops); timed(current, state, ops);
+        StringBuilder out = new StringBuilder("\nR4BENCH pid=").append(android.os.Process.myPid())
+                .append(" api=").append(android.os.Build.VERSION.SDK_INT)
+                .append(" ops=").append(ops).append(" pairs=").append(pairs)
+                .append(" warmup=1-per-path ns_per_op data=");
+        for (int i = 0; i < pairs; i++) {
+            long oldNanos, newNanos;
+            if ((i & 1) == 0) {
+                oldNanos = timed(old, state, ops); newNanos = timed(current, state, ops);
+            } else {
+                newNanos = timed(current, state, ops); oldNanos = timed(old, state, ops);
+            }
+            if (i > 0) out.append('|');
+            out.append(i + 1).append(':')
+                    .append((double) oldNanos / ops).append(',')
+                    .append((double) newNanos / ops);
+        }
+        return out.append('\n').toString();
+    }
+
+    private int intArgument(String key, int fallback, int min, int max) {
+        String raw = arguments == null ? null : arguments.getString(key);
+        if (raw == null) return fallback;
+        int value = Integer.parseInt(raw);
+        if (value < min || value > max) throw new IllegalArgumentException(key + " out of range");
+        return value;
+    }
 
     /** Same state, no callbacks: paired runs compare the old clone path with the current implementation. */
     private String benchmarkSameState() {
