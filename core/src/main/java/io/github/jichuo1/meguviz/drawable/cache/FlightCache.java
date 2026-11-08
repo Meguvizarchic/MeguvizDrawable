@@ -274,7 +274,14 @@ public final class FlightCache<K, V> implements AutoCloseable {
     private final boolean abandonRunning;
     private final LinkedHashMap<K, Cached<V>> cache = new LinkedHashMap<K, Cached<V>>(16, 0.75f, true);
     private final Map<K, Flight<K, V>> flights = new LinkedHashMap<K, Flight<K, V>>();
-    private final AtomicLong[] counters = new AtomicLong[COUNTERS];
+    // Every counter except the three below is only ever written while holding {@code lock}, so a
+    // plain long under the lock is enough; an atomic read-modify-write there was a second, redundant
+    // synchronization on every hit. stats() reads them under the same lock, as before.
+    private final long[] counts = new long[COUNTERS];
+    // Written outside the lock (delivery on the owner thread, eviction listeners on any thread).
+    private final AtomicLong delivered = new AtomicLong();
+    private final AtomicLong stale = new AtomicLong();
+    private final AtomicLong listenerFailures = new AtomicLong();
     private long weight;
     private long version;
     private volatile boolean closed;
@@ -288,7 +295,6 @@ public final class FlightCache<K, V> implements AutoCloseable {
         weigher = builder.weigher;
         listener = builder.listener;
         abandonRunning = builder.abandonRunning;
-        for (int i = 0; i < COUNTERS; i++) counters[i] = new AtomicLong();
     }
 
     /** The cached value or null. Never computes and never blocks on a producer. */
@@ -297,7 +303,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
         synchronized (lock) {
             Cached<V> hit = cache.get(key);
             if (hit == null) return null;
-            counters[HITS].incrementAndGet();
+            counts[HITS]++;
             return hit.value;
         }
     }
@@ -335,19 +341,19 @@ public final class FlightCache<K, V> implements AutoCloseable {
             } else {
                 Cached<V> hit = cache.get(key);
                 if (hit != null) {
-                    counters[HITS].incrementAndGet();
+                    counts[HITS]++;
                     // No subscription, so nothing to cancel and no reason to keep the cache
                     // reachable from a ticket whose whole lifetime is this return value.
                     readyValue = hit.value;
                     early = Status.READY;
                 } else {
-                    counters[MISSES].incrementAndGet();
+                    counts[MISSES]++;
                     Flight<K, V> joined = flights.get(key);
                     if (joined != null && !joined.cancelled) {
                         sub = new Sub<K, V>(subscriber);
                         joined.subscribers.add(sub);
                         sub.flight = joined;
-                        counters[JOINS].incrementAndGet();
+                        counts[JOINS]++;
                         return new Ticket<V>(Status.JOINED, null, sub, this);
                     }
                     // A flight told to stop (every subscriber left, abandonRunning) is replaced rather than joined;
@@ -359,7 +365,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
                         rejected = dropped == null;
                     }
                     if (rejected) {
-                        counters[REJECTED].incrementAndGet();
+                        counts[REJECTED]++;
                         ticket = new Ticket<V>(Status.REJECTED_CAPACITY, null, null, null);
                     } else {
                         if (dropped != null && dropped.task != null) {
@@ -371,7 +377,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
                         start.subscribers.add(sub);
                         sub.flight = start;
                         flights.put(key, start);
-                        counters[STARTED].incrementAndGet();
+                        counts[STARTED]++;
                         ticket = new Ticket<V>(Status.STARTED, null, sub, this);
                     }
                 }
@@ -407,8 +413,8 @@ public final class FlightCache<K, V> implements AutoCloseable {
                 flight.producer = null;
                 flight.task = null;
                 if (ownsQueuedFlight) {
-                    counters[STARTED].decrementAndGet();
-                    counters[REJECTED].incrementAndGet();
+                    counts[STARTED]--;
+                    counts[REJECTED]++;
                 }
                 flight.subscribers.remove(sub);
                 others = ownsQueuedFlight ? drain(flight) : java.util.Collections.<Sub<K, V>>emptyList();
@@ -437,7 +443,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
             if (closed) throw new IllegalStateException("cache closed");
             Cached<V> hit = cache.get(key);
             if (hit != null) {
-                counters[HITS].incrementAndGet();
+                counts[HITS]++;
                 return hit.value;
             }
         }
@@ -480,7 +486,10 @@ public final class FlightCache<K, V> implements AutoCloseable {
     public Stats stats() {
         synchronized (lock) {
             long[] values = new long[COUNTERS];
-            for (int i = 0; i < COUNTERS; i++) values[i] = counters[i].get();
+            System.arraycopy(counts, 0, values, 0, COUNTERS);
+            values[DELIVERED] = delivered.get();
+            values[STALE] = stale.get();
+            values[LISTENER_FAILURES] = listenerFailures.get();
             return new Stats(values, version, cache.size(), weight, flights.size());
         }
     }
@@ -535,7 +544,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
                 flight.state = FlightState.DONE;
                 flight.producer = null;
                 flight.task = null;
-                if (!closed) counters[ABANDONED].incrementAndGet();
+                if (!closed) counts[ABANDONED]++;
                 return;
             }
             flight.state = FlightState.RUNNING;
@@ -562,7 +571,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
             flight.task = null;
             if (flights.get(flight.key) == flight) flights.remove(flight.key);
             if (failure != null) {
-                counters[FAILURES].incrementAndGet();
+                counts[FAILURES]++;
             } else if (!closed) {
                 publish(flight.key, value, cost, evicted);
             }
@@ -582,13 +591,13 @@ public final class FlightCache<K, V> implements AutoCloseable {
         }
         weight += cost;
         version++;
-        counters[PRODUCED].incrementAndGet();
+        counts[PRODUCED]++;
         Iterator<Map.Entry<K, Cached<V>>> eldest = cache.entrySet().iterator();
         while (eldest.hasNext() && (cache.size() > maxEntries || weight > maxWeight)) {
             Map.Entry<K, Cached<V>> entry = eldest.next();
             eldest.remove();
             weight -= entry.getValue().weight;
-            counters[EVICTIONS].incrementAndGet();
+            counts[EVICTIONS]++;
             evicted.add(new Eviction<K, V>(entry.getKey(), entry.getValue().value, EvictionReason.CAPACITY));
         }
     }
@@ -604,7 +613,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
                 it.remove();
                 flight.state = FlightState.DONE;
                 flight.producer = null;
-                counters[ABANDONED].incrementAndGet();
+                counts[ABANDONED]++;
                 return flight;
             }
         }
@@ -625,7 +634,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
         synchronized (lock) {
             if (sub.cancelled || sub.delivered) return false;
             sub.cancelled = true;
-            counters[CANCELLED].incrementAndGet();
+            counts[CANCELLED]++;
             Flight<K, V> flight = sub.flight;
             if (flight != null && flight.subscribers.remove(sub) && flight.subscribers.isEmpty()
                     && flight.state == FlightState.RUNNING && abandonRunning) {
@@ -650,7 +659,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
                 accepted = false;
             }
             if (!accepted) {
-                counters[STALE].incrementAndGet();
+                stale.incrementAndGet();
                 // Nobody will deliver this subscriber; drop its outbound references now.
                 release(sub);
             }
@@ -672,7 +681,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
             // before close() is not in a flight any more, so close() cannot cancel it. Dropping it
             // keeps the documented "no subscriber is called after close" promise.
             if (sub.cancelled || closed) {
-                counters[STALE].incrementAndGet();
+                stale.incrementAndGet();
                 release(sub);
                 return;
             }
@@ -681,10 +690,10 @@ public final class FlightCache<K, V> implements AutoCloseable {
         }
         try {
             if (target == null || !target.isCurrent()) {
-                counters[STALE].incrementAndGet();
+                stale.incrementAndGet();
                 return;
             }
-            counters[DELIVERED].incrementAndGet();
+            delivered.incrementAndGet();
             if (failure == null) target.onReady(value);
             else target.onFailed(failure);
         } finally {
@@ -713,7 +722,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
             try {
                 listener.onEvicted(eviction.key, eviction.value, eviction.reason);
             } catch (Throwable failure) {
-                counters[LISTENER_FAILURES].incrementAndGet();
+                listenerFailures.incrementAndGet();
             }
         }
     }

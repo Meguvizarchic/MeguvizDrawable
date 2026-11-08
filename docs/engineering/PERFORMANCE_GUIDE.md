@@ -238,6 +238,32 @@ HashMap 中 65 个 recipe，查找键与表内键相等但不是同一实例。�
 验证：`CoreAdditionalContractTest.conveniencesAndCachedHashes`（缓存值等于新对象的首次计算值、
 各种首用顺序下相等对象 hash 相等）；`-Pmeguviz.profile=android check`、`:core:contractStress` 通过。
 
+## 2026-11-08（联合改进 r1）：FlightCache 锁内计数改为普通 long
+
+来源：研究笔记 `meguviz-joint/research/runtime-B-queues-and-art-codegen.md` R-B3（13 个相邻 `AtomicLong`，
+多数在 `synchronized (lock)` 内自增，原子 RMW 多余；锁外不同线程写相邻计数器是伪共享候选）。逐个核对写者后：
+10 个计数只在持锁时写，改为锁保护的 `long[]`；`delivered`、`stale`、`listenerFailures` 在锁外写
+（所有者线程交付、任意线程的淘汰监听），保留为 3 个独立 `AtomicLong`。`stats()` 仍在锁内读，快照语义不变
+（锁外三个计数与之前一样不是原子快照）。公开 API 与计数含义不变。
+
+方法：`benchmark/FlightCacheHitLatencyProbe.java`，宿主 OpenJDK 21.0.12.1 / Apple M4；改前 = `c006a11`、改后 = 本提交，
+同一探针二进制；单线程与“有竞争”（另一线程持续 `computeNow` 不同键，抢同一把锁）两种模式，改前/改后各 5 进程交错，
+每进程 4+7 轮 × 2,000,000 次。原始 CSV 在本地 `docs/engineering/evidence/runs/2026-11-08-flightcache-hit/`。
+
+| 模式 / 路径 | 改前 中位数（进程中位数范围，p95） | 改后 |
+|---|---|---|
+| 单线程 `peek` 命中 | 6.64 ns（5.20–9.48，p95 13.68） | 5.29 ns（4.96–6.20，p95 8.43） |
+| 单线程 `request` 命中 | 10.06 ns（7.89–20.08，p95 20.20） | 9.65 ns（7.65–10.83，p95 12.11） |
+| 有竞争 `peek` | 247 ns（141–655，p95 675） | 206 ns（106–282，p95 374） |
+| 有竞争 `request` | 180 ns（104–246，p95 265） | 141 ns（93–245，p95 327） |
+
+如实解读：单线程命中路径中位数下降约 1.4 ns（`peek`）与 0.4 ns（`request`），尾部更集中；有竞争模式离散很大，
+且该夹具下另一线程的发布会把被测键挤出（`stats_hits_per_measured_op` 约 0.5，即一半是未命中），它主要测的是锁争用，
+只作方向参考，不据此宣称竞争下的收益。HotSpot/M4 结果不外推到 ART；ART 上 thin lock 未竞争时是一次 CAS，
+去掉锁内多余的原子加的绝对收益同样只有几纳秒量级。未在设备上测，伪共享是否真实存在未用 PMU 验证（研究笔记建议真机 simpleperf）。
+
+验证：`FlightCacheContractTest` 全部计数断言（默认 145 项与 `contractStress` 447,225 项）通过。
+
 ## 参考（直接阅读，非外部研究服务）
 
 - Go `golang.org/x/sync/singleflight`（https://pkg.go.dev/golang.org/x/sync/singleflight）：同键并发
