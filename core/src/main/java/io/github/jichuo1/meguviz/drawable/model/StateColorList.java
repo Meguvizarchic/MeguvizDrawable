@@ -8,6 +8,8 @@ import java.util.List;
 public final class StateColorList {
     private final List<StateSpec> specs;
     private final int[] colors;
+    /** Lazily cached {@link #hashCode()}; 0 means not computed yet (the String idiom, benign race). */
+    private int hash;
 
     public StateColorList(List<StateSpec> specs, int[] colors) {
         if (specs == null || colors == null) {
@@ -46,11 +48,16 @@ public final class StateColorList {
             return false;
         }
         StateColorList that = (StateColorList) other;
+        if (hash != 0 && that.hash != 0 && hash != that.hash) return false;
         return specs.equals(that.specs) && java.util.Arrays.equals(colors, that.colors);
     }
 
     @Override
     public int hashCode() {
-        return 31 * specs.hashCode() + java.util.Arrays.hashCode(colors);
+        int cached = this.hash;
+        if (cached != 0) return cached;
+        int hash = 31 * specs.hashCode() + java.util.Arrays.hashCode(colors);
+        this.hash = hash;
+        return hash;
     }
 }

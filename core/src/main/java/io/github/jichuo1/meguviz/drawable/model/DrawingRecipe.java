@@ -6,6 +6,8 @@ public final class DrawingRecipe {
     private final FillSpec fill;
     private final StrokeSpec stroke;
     private final LayoutMetrics metrics;
+    /** Lazily cached {@link #hashCode()}; 0 means not computed yet (the String idiom, benign race). */
+    private int hash;
 
     public DrawingRecipe(ShapeSpec shape, FillSpec fill, StrokeSpec stroke, LayoutMetrics metrics) {
         if (shape == null || fill == null || metrics == null) {
@@ -41,12 +43,17 @@ public final class DrawingRecipe {
         if (this == other) return true;
         if (!(other instanceof DrawingRecipe)) return false;
         DrawingRecipe that = (DrawingRecipe) other;
+        if (hash != 0 && that.hash != 0 && hash != that.hash) return false;
         return shape.equals(that.shape) && fill.equals(that.fill) && metrics.equals(that.metrics)
                 && (stroke == null ? that.stroke == null : stroke.equals(that.stroke));
     }
     @Override public int hashCode() {
+        int cached = this.hash;
+        if (cached != 0) return cached;
         int hash = 31 * shape.hashCode() + fill.hashCode();
         hash = 31 * hash + (stroke == null ? 0 : stroke.hashCode());
-        return 31 * hash + metrics.hashCode();
+        hash = 31 * hash + metrics.hashCode();
+        this.hash = hash;
+        return hash;
     }
 }

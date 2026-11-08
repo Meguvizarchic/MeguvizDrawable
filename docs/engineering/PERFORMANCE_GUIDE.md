@@ -205,6 +205,39 @@ transforms cache 中真实的 1.2.0 runtime jar 在宿主 JVM 上编译并运行
 - 模糊边界：`sigma = 0.57735·r + 0.5`；Skia 大半径内建降采样（`kMaxLinearSigma = 4`，半径约 27），
   本库半八度 8 档的方向正确。
 
+## 2026-11-08（联合改进 r1）：模型 hash 缓存与构造分配
+
+改动（core/model，无签名变化）：`DrawingRecipe`、`FillSpec`、`ShapeSpec`、`StateSpec`、`StateColorList`
+惰性缓存 `hashCode()`（`String` 同款良性竞争：字段全为 final、hash 由它们确定，`int` 写入原子，
+读到 0 只会重算，不会读到错值）；`equals` 在双方 hash 都已算出且不等时提前返回 false（相等对象 hash 必相等，
+语义不变）。`FillSpec`/`ShapeSpec` 的 hash 改用枚举 `ordinal()` 而非身份 hash，使 hash 值跨进程可复现
+（`hashCode` 的具体数值从未是合同）。`FillSpec.solid`/`statefulSolid` 共享空数组常量（空数组不可变）。
+上一提交已让 `LayoutMetrics.unspecified()` 返回共享常量。
+
+方法：`benchmark/ModelProbe.java`，宿主 JVM（OpenJDK 21.0.12.1，Apple M4，默认 JIT/逃逸分析），
+改前 = `b087b3f` 的 core 源码、改后 = 本提交，同一探针二进制；每进程 4 轮热身 + 7 轮测量、每轮 1,000,000 次；
+改前/改后各 5 个进程交错运行（old,new,old,new…）。夹具：8 条状态规则 + 描边 + 圆角的按钮 recipe，
+HashMap 中 65 个 recipe，查找键与表内键相等但不是同一实例。原始 CSV 在本地
+`docs/engineering/evidence/runs/2026-11-08-model-probe/`（不入库）。
+
+| 指标 | 改前（5 进程中位数范围 / 总中位数 / p95） | 改后 |
+|---|---|---|
+| 已算过 hash 的同一 recipe 再次 `hashCode()` | 26.8–35.2 / 29.3 / 40.9 ns | 0.049 ns（循环内只剩字段读，JIT 外提，不代表单次调用成本）|
+| `HashMap.get`（相等但非同一的键） | 96.7–117.1 / 106.3 / 145.0 ns | 59.5–102.6 / 85.5 / 133.4 ns |
+| `new DrawingRecipe(s, f, null, LayoutMetrics.unspecified())` 分配 | 96 B | 32 B（不再新建 64 B 的 `LayoutMetrics`）|
+| `FillSpec.solid(c)` 分配 | 80 B | 56 B（少两个空数组克隆）|
+| `DrawingRecipe.of(s, f)` 分配 | —（新 API） | 32 B，与手写构造器相同 |
+
+如实解读：`HashMap.get` 的剩余成本主要是相等键之间的深度 `equals`（hash 缓存只省掉查找键的 hash 计算），
+改后进程间离散较大（59.5–102.6 ns），只能说中位数下降约 20%；`hash` 字段放进了对象对齐填充，
+`DrawingRecipe` 实例大小在 HotSpot 压缩指针下仍为 32 B（ART 对象布局不同，未测）。
+受益方是以 recipe（或包含它的键）做哈希容器键的调用方：`FlightCache` 键、`StateMatcherCache` 的规则键
+（`StateSpec` hash 缓存后建键少一次遍历）、宿主自己的 `HashMap`。绘制热路径不调用 `hashCode`，
+因此对帧耗时没有直接影响；未在 ART/设备上测量，不声称设备收益。
+
+验证：`CoreAdditionalContractTest.conveniencesAndCachedHashes`（缓存值等于新对象的首次计算值、
+各种首用顺序下相等对象 hash 相等）；`-Pmeguviz.profile=android check`、`:core:contractStress` 通过。
+
 ## 参考（直接阅读，非外部研究服务）
 
 - Go `golang.org/x/sync/singleflight`（https://pkg.go.dev/golang.org/x/sync/singleflight）：同键并发

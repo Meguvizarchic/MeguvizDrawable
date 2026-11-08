@@ -7,6 +7,8 @@ public final class ShapeSpec {
     public enum Kind { RECTANGLE, ELLIPSE, ROUND_RECT }
     private final Kind kind;
     private final Length[] radii;
+    /** Lazily cached {@link #hashCode()}; 0 means not computed yet (the String idiom, benign race). */
+    private int hash;
 
     private ShapeSpec(Kind kind, Length[] radii) {
         this.kind = kind;
@@ -35,7 +37,14 @@ public final class ShapeSpec {
         if (this == other) return true;
         if (!(other instanceof ShapeSpec)) return false;
         ShapeSpec that = (ShapeSpec) other;
+        if (hash != 0 && that.hash != 0 && hash != that.hash) return false;
         return kind == that.kind && Arrays.equals(radii, that.radii);
     }
-    @Override public int hashCode() { return 31 * kind.hashCode() + Arrays.hashCode(radii); }
+    @Override public int hashCode() {
+        int cached = this.hash;
+        if (cached != 0) return cached;
+        int hash = 31 * kind.ordinal() + Arrays.hashCode(radii);
+        this.hash = hash;
+        return hash;
+    }
 }

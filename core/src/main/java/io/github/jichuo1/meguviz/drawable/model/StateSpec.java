@@ -5,6 +5,8 @@ import java.util.Arrays;
 /** An immutable ordered state specification using positive and negative state IDs. */
 public final class StateSpec {
     private final int[] conditions;
+    /** Lazily cached {@link #hashCode()}; 0 means not computed yet (the String idiom, benign race). */
+    private int hash;
 
     public StateSpec(int... conditions) {
         if (conditions == null) {
@@ -37,11 +39,18 @@ public final class StateSpec {
     @Override
     public boolean equals(Object other) {
         if (this == other) return true;
-        return other instanceof StateSpec && Arrays.equals(conditions, ((StateSpec) other).conditions);
+        if (!(other instanceof StateSpec)) return false;
+        StateSpec that = (StateSpec) other;
+        if (hash != 0 && that.hash != 0 && hash != that.hash) return false;
+        return Arrays.equals(conditions, that.conditions);
     }
 
     @Override
     public int hashCode() {
-        return Arrays.hashCode(conditions);
+        int cached = this.hash;
+        if (cached != 0) return cached;
+        int hash = Arrays.hashCode(conditions);
+        this.hash = hash;
+        return hash;
     }
 }
