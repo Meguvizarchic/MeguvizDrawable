@@ -4,7 +4,7 @@
 
 ## 环境与口径
 
-- 主机：macOS / Apple M4 / 16 GB，JDK `21.0.12.1`（`/Volumes/DevEnvironment/dev-tools/jdk/Contents/Home`）。
+- 主机：macOS / Apple M4 / 16 GB，JDK `21.0.12.1`（macOS aarch64）。
 - 运行方式：HotSpot JVM，独立进程；`old` 与 `new` 交替（ABAB…）各 5 个 fork，每 fork 内多轮。**没有 ART、没有 Android 设备、没有模拟器**，因此这些数字只能说「在该主机 JVM 上测得」，不得外推到 ART 或真机。
 - `old` = 基线提交 `b087b3f` 的干净副本；`new` = 第一轮改动后的工作树。归因见各 CSV 的 `build` 列。
 - 探针源码：`benchmark/ModelProbe.java`、`benchmark/FlightCacheHitLatencyProbe.java`（纯 Java，无第三方依赖）。

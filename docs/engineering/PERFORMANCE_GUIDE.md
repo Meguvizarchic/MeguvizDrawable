@@ -247,7 +247,7 @@ HashMap 中 65 个 recipe，查找键与表内键相等但不是同一实例。�
 
 ## 2026-11-08（联合改进 r1）：FlightCache 锁内计数改为普通 long
 
-来源：研究笔记 `meguviz-joint/research/runtime-B-queues-and-art-codegen.md` R-B3（13 个相邻 `AtomicLong`，
+来源：联合工作区内的研究笔记 R-B3（不在本仓库；13 个相邻 `AtomicLong`，
 多数在 `synchronized (lock)` 内自增，原子 RMW 多余；锁外不同线程写相邻计数器是伪共享候选）。逐个核对写者后：
 10 个计数只在持锁时写，改为锁保护的 `long[]`；`delivered`、`stale`、`listenerFailures` 在锁外写
 （所有者线程交付、任意线程的淘汰监听），保留为 3 个独立 `AtomicLong`。`stats()` 仍在锁内读，快照语义不变

@@ -5,8 +5,7 @@
 
 原则：不复制上游内部对象图，只使用上游已发布制品的公开 API；上游的行为以真实制品在设备上的观测为准，
 不以注释或文档推断。**版本统一为 1.2.0**，由本地 `meguviz-bom:1.2.0` 对齐；各候选的精确 SHA-256
-以 `/Volumes/DevEnvironment/meguviz-joint/local-maven/checksums.sha256` 为准
-（`python3 /Volumes/DevEnvironment/meguviz-joint/tools/publish_local_bom.py --check` 可复核；脚本在**家族联合仓库**，不是本仓库 `tools/`）。
+以维护者联合工作区里本地 file 仓库中的 `checksums.sha256` 为准（该仓库及其生成脚本不在本仓库内，也不在任何公开仓库里）。
 候选重发后字节会变，**不要把任何具体 SHA 写进文档当作不可变事实**；Central 上已发布的 1.0.0 不在此列。
 
 ## 制品一览
