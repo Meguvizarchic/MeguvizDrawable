@@ -195,3 +195,14 @@ dev.3 core JAR SHA-256 `51b17b45e0397b5b322b1382bb73e42bb7e7a91199e538eb79e31031
   默认合同仍为 106 项通过。没有修改正式生产源码，也未借压力语料补检出。
 - 独立核心与可选桥边界不变：core 无 Android/兄弟库依赖，桥仍需显式选档；这些主机结果不代表
   真机像素、ART 性能或 R8 后设备行为通过。
+
+## 联合改进第一轮，2026-11-08（分支 `perf/joint-r1`，未推送）
+
+- 基线：`git archive b087b3f` 的干净副本上 `-Pmeguviz.profile=android check` 通过（默认 148 项）。新克隆因 `gradlew`
+  缺可执行位失败（已修 `d6e2335`）。审计与全部发现见 [AUDIT_JOINT_R1.md](AUDIT_JOINT_R1.md)。
+- 每个提交后：`-Pmeguviz.profile=android check :android:assembleDebugAndroidTest :core:contractStress`
+  （JDK 21.0.12.1，`--offline`）通过；默认合同 145 项、stress 447,225 项。`740a7cb`、`ff4b26f` 另以单独检出 + `javac`
+  复跑确认提交本身可过合同。
+- ABI：`docs/abi/1.2.0/core-api.*` 相对 1.1.0 只有新增；`LegacyCoreClient`（针对 Central 1.0.0 编译）在新 jar 上 PASS。
+- 性能：模型 hash/分配与 `FlightCache` 命中路径的宿主测量见 [PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md) 2026-11-08 两节。
+- 未运行：任何设备/模拟器测试、`bridges` 档位（上游 1.2.0 制品不可得）、R8。

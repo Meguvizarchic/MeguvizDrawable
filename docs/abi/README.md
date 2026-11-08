@@ -35,3 +35,9 @@ bridge artifacts (`compose`, `meguviz-android`, `meguviz-ui`, `lumen`); they are
 Preserve the earlier directories instead of replacing them. The frozen `fixtures/abi/LegacyCoreClient`
 exercises a small old core API subset without recompiling; it is not an
 exhaustive compatibility guarantee.
+
+`1.2.0/core-api.*` (2026-11-08, joint round 1) is generated from the staging core jar of branch
+`perf/joint-r1` (artifact SHA-256 in the JSON, `javap` 21.0.12.1). Against `1.1.0/core-api.txt` it only
+adds `DrawingRecipe.of`, `withStroke` and `withMetrics`; nothing was removed or changed. `LegacyCoreClient`
+compiled against the Central 1.0.0 jar ran unchanged on this jar (PASS). The android API is unchanged in this
+round and was not re-dumped (its staging publish needs Dokka, unavailable offline).

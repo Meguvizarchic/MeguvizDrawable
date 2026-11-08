@@ -1,0 +1,968 @@
+# io.github.jichuo1.meguviz.drawable.binding.BindingEnvironment (public)
+public final class io.github.jichuo1.meguviz.drawable.binding.BindingEnvironment {
+  public io.github.jichuo1.meguviz.drawable.binding.BindingEnvironment(long, long);
+    descriptor: (JJ)V
+
+  public long resourceRevision();
+    descriptor: ()J
+
+  public long registryRevision();
+    descriptor: ()J
+
+  public boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+
+  public int hashCode();
+    descriptor: ()I
+
+  public java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.BindingScope (public)
+public final class io.github.jichuo1.meguviz.drawable.binding.BindingScope implements java.lang.AutoCloseable {
+  public io.github.jichuo1.meguviz.drawable.binding.BindingScope(long);
+    descriptor: (J)V
+
+  public long ownerEpoch();
+    descriptor: ()J
+
+  public io.github.jichuo1.meguviz.drawable.binding.BindingScope$State state();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$State;
+
+  public long bindingEpoch();
+    descriptor: ()J
+
+  public io.github.jichuo1.meguviz.drawable.binding.BindingEnvironment environment();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/binding/BindingEnvironment;
+
+  public void bind(io.github.jichuo1.meguviz.drawable.binding.BindingEnvironment);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/binding/BindingEnvironment;)V
+
+  public boolean suspend();
+    descriptor: ()Z
+
+  public boolean resume(io.github.jichuo1.meguviz.drawable.binding.BindingEnvironment);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/binding/BindingEnvironment;)Z
+
+  public boolean updateEnvironment(io.github.jichuo1.meguviz.drawable.binding.BindingEnvironment);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/binding/BindingEnvironment;)Z
+
+  public <T extends io.github.jichuo1.meguviz.drawable.binding.BindingScope$Releasable> T own(T);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$Releasable;)Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$Releasable;
+
+  public <T> io.github.jichuo1.meguviz.drawable.binding.SlotBinding<T> slot(java.lang.String, io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Slot<T>, io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Releaser<T>);
+    descriptor: (Ljava/lang/String;Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Slot;Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Releaser;)Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding;
+
+  public io.github.jichuo1.meguviz.drawable.binding.BindingScope$Claim claim(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$Claim;
+
+  public io.github.jichuo1.meguviz.drawable.binding.RequestStamp begin(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/binding/RequestStamp;
+
+  public <R> io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome commit(io.github.jichuo1.meguviz.drawable.binding.RequestStamp, R, io.github.jichuo1.meguviz.drawable.binding.BindingScope$Installer<R>, io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Releaser<R>);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/binding/RequestStamp;Ljava/lang/Object;Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$Installer;Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Releaser;)Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$CommitOutcome;
+
+  public void close();
+    descriptor: ()V
+
+  public java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.BindingScope$Claim (public)
+public final class io.github.jichuo1.meguviz.drawable.binding.BindingScope$Claim implements java.lang.AutoCloseable {
+  public java.lang.String key();
+    descriptor: ()Ljava/lang/String;
+
+  public boolean isReleased();
+    descriptor: ()Z
+
+  public void close();
+    descriptor: ()V
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome (public)
+public final class io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome extends java.lang.Enum<io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome> {
+  public static final io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome COMMITTED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$CommitOutcome;
+  public static final io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome STALE;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$CommitOutcome;
+  public static final io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome NOT_BOUND;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$CommitOutcome;
+  public static final io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome CLOSED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$CommitOutcome;
+  public static final io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome FOREIGN;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$CommitOutcome;
+  public static final io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome REJECTED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$CommitOutcome;
+  public static io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome[] values();
+    descriptor: ()[Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$CommitOutcome;
+
+  public static io.github.jichuo1.meguviz.drawable.binding.BindingScope$CommitOutcome valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$CommitOutcome;
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.BindingScope$Installer (public)
+public interface io.github.jichuo1.meguviz.drawable.binding.BindingScope$Installer<R> {
+  public abstract boolean install(R);
+    descriptor: (Ljava/lang/Object;)Z
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.BindingScope$Releasable (public)
+public interface io.github.jichuo1.meguviz.drawable.binding.BindingScope$Releasable {
+  public abstract void release();
+    descriptor: ()V
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.BindingScope$State (public)
+public final class io.github.jichuo1.meguviz.drawable.binding.BindingScope$State extends java.lang.Enum<io.github.jichuo1.meguviz.drawable.binding.BindingScope$State> {
+  public static final io.github.jichuo1.meguviz.drawable.binding.BindingScope$State CREATED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$State;
+  public static final io.github.jichuo1.meguviz.drawable.binding.BindingScope$State BOUND;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$State;
+  public static final io.github.jichuo1.meguviz.drawable.binding.BindingScope$State SUSPENDED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$State;
+  public static final io.github.jichuo1.meguviz.drawable.binding.BindingScope$State CLOSED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$State;
+  public static io.github.jichuo1.meguviz.drawable.binding.BindingScope$State[] values();
+    descriptor: ()[Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$State;
+
+  public static io.github.jichuo1.meguviz.drawable.binding.BindingScope$State valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/binding/BindingScope$State;
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.RequestStamp (public)
+public final class io.github.jichuo1.meguviz.drawable.binding.RequestStamp {
+  public java.lang.String key();
+    descriptor: ()Ljava/lang/String;
+
+  public long requestId();
+    descriptor: ()J
+
+  public long ownerEpoch();
+    descriptor: ()J
+
+  public long bindingEpoch();
+    descriptor: ()J
+
+  public io.github.jichuo1.meguviz.drawable.binding.BindingEnvironment environment();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/binding/BindingEnvironment;
+
+  public java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.SlotBinding (public)
+public final class io.github.jichuo1.meguviz.drawable.binding.SlotBinding<T> implements java.lang.AutoCloseable {
+  public io.github.jichuo1.meguviz.drawable.binding.SlotBinding(io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Slot<T>);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Slot;)V
+
+  public io.github.jichuo1.meguviz.drawable.binding.SlotBinding(io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Slot<T>, java.lang.Object, io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Releaser<T>);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Slot;Ljava/lang/Object;Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Releaser;)V
+
+  public java.lang.Object ownerToken();
+    descriptor: ()Ljava/lang/Object;
+
+  public boolean install(T, T);
+    descriptor: (Ljava/lang/Object;Ljava/lang/Object;)Z
+
+  public boolean install(T, T, java.lang.Object, long);
+    descriptor: (Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;J)Z
+
+  public boolean replace(T);
+    descriptor: (Ljava/lang/Object;)Z
+
+  public boolean replace(T, java.lang.Object, long);
+    descriptor: (Ljava/lang/Object;Ljava/lang/Object;J)Z
+
+  public io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Ensure ensure(T, java.lang.Object, long, io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Factory<T>);
+    descriptor: (Ljava/lang/Object;Ljava/lang/Object;JLio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Factory;)Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Ensure;
+
+  public boolean takeOver(T, java.lang.Object, long);
+    descriptor: (Ljava/lang/Object;Ljava/lang/Object;J)Z
+
+  public boolean isOwned();
+    descriptor: ()Z
+
+  public T current();
+    descriptor: ()Ljava/lang/Object;
+
+  public java.lang.Object appliedSpec();
+    descriptor: ()Ljava/lang/Object;
+
+  public long environmentRevision();
+    descriptor: ()J
+
+  public void close();
+    descriptor: ()V
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Ensure (public)
+public final class io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Ensure extends java.lang.Enum<io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Ensure> {
+  public static final io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Ensure UNCHANGED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Ensure;
+  public static final io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Ensure INSTALLED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Ensure;
+  public static final io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Ensure REPLACED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Ensure;
+  public static final io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Ensure NOT_OWNED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Ensure;
+  public static io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Ensure[] values();
+    descriptor: ()[Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Ensure;
+
+  public static io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Ensure valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/binding/SlotBinding$Ensure;
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Factory (public)
+public interface io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Factory<T> {
+  public abstract T create();
+    descriptor: ()Ljava/lang/Object;
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Releaser (public)
+public interface io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Releaser<T> {
+  public abstract void release(T);
+    descriptor: (Ljava/lang/Object;)V
+}
+
+# io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Slot (public)
+public interface io.github.jichuo1.meguviz.drawable.binding.SlotBinding$Slot<T> {
+  public abstract T get();
+    descriptor: ()Ljava/lang/Object;
+
+  public abstract void set(T);
+    descriptor: (Ljava/lang/Object;)V
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache (public)
+public final class io.github.jichuo1.meguviz.drawable.cache.FlightCache<K, V> implements java.lang.AutoCloseable {
+  public static <K, V> io.github.jichuo1.meguviz.drawable.cache.FlightCache$Builder<K, V> builder(java.util.concurrent.Executor, io.github.jichuo1.meguviz.drawable.cache.FlightCache$OwnerPoster);
+    descriptor: (Ljava/util/concurrent/Executor;Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$OwnerPoster;)Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Builder;
+
+  public V peek(K);
+    descriptor: (Ljava/lang/Object;)Ljava/lang/Object;
+
+  public io.github.jichuo1.meguviz.drawable.cache.FlightCache$Ticket<V> request(K, io.github.jichuo1.meguviz.drawable.cache.FlightCache$Producer<K, V>, io.github.jichuo1.meguviz.drawable.cache.FlightCache$Subscriber<V>);
+    descriptor: (Ljava/lang/Object;Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Producer;Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Subscriber;)Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Ticket;
+
+  public V computeNow(K, io.github.jichuo1.meguviz.drawable.cache.FlightCache$Producer<K, V>) throws java.lang.Exception;
+    descriptor: (Ljava/lang/Object;Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Producer;)Ljava/lang/Object;
+
+  public long version();
+    descriptor: ()J
+
+  public io.github.jichuo1.meguviz.drawable.cache.FlightCache$Stats stats();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Stats;
+
+  public boolean isClosed();
+    descriptor: ()Z
+
+  public void close();
+    descriptor: ()V
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache$Builder (public)
+public final class io.github.jichuo1.meguviz.drawable.cache.FlightCache$Builder<K, V> {
+  public io.github.jichuo1.meguviz.drawable.cache.FlightCache$Builder<K, V> maxEntries(int);
+    descriptor: (I)Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Builder;
+
+  public io.github.jichuo1.meguviz.drawable.cache.FlightCache$Builder<K, V> maxWeight(long);
+    descriptor: (J)Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Builder;
+
+  public io.github.jichuo1.meguviz.drawable.cache.FlightCache$Builder<K, V> maxFlights(int);
+    descriptor: (I)Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Builder;
+
+  public io.github.jichuo1.meguviz.drawable.cache.FlightCache$Builder<K, V> weigher(io.github.jichuo1.meguviz.drawable.cache.FlightCache$Weigher<V>);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Weigher;)Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Builder;
+
+  public io.github.jichuo1.meguviz.drawable.cache.FlightCache$Builder<K, V> evictionListener(io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionListener<K, V>);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$EvictionListener;)Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Builder;
+
+  public io.github.jichuo1.meguviz.drawable.cache.FlightCache$Builder<K, V> abandonRunning(boolean);
+    descriptor: (Z)Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Builder;
+
+  public io.github.jichuo1.meguviz.drawable.cache.FlightCache<K, V> build();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/cache/FlightCache;
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache$Cancellation (public)
+public interface io.github.jichuo1.meguviz.drawable.cache.FlightCache$Cancellation {
+  public abstract boolean isCancelled();
+    descriptor: ()Z
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionListener (public)
+public interface io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionListener<K, V> {
+  public abstract void onEvicted(K, V, io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionReason);
+    descriptor: (Ljava/lang/Object;Ljava/lang/Object;Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$EvictionReason;)V
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionReason (public)
+public final class io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionReason extends java.lang.Enum<io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionReason> {
+  public static final io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionReason CAPACITY;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$EvictionReason;
+  public static final io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionReason REPLACED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$EvictionReason;
+  public static final io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionReason CLOSED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$EvictionReason;
+  public static io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionReason[] values();
+    descriptor: ()[Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$EvictionReason;
+
+  public static io.github.jichuo1.meguviz.drawable.cache.FlightCache$EvictionReason valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$EvictionReason;
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache$OwnerPoster (public)
+public interface io.github.jichuo1.meguviz.drawable.cache.FlightCache$OwnerPoster {
+  public abstract boolean post(java.lang.Runnable);
+    descriptor: (Ljava/lang/Runnable;)Z
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache$Producer (public)
+public interface io.github.jichuo1.meguviz.drawable.cache.FlightCache$Producer<K, V> {
+  public abstract V produce(K, io.github.jichuo1.meguviz.drawable.cache.FlightCache$Cancellation) throws java.lang.Exception;
+    descriptor: (Ljava/lang/Object;Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Cancellation;)Ljava/lang/Object;
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache$Stats (public)
+public final class io.github.jichuo1.meguviz.drawable.cache.FlightCache$Stats {
+  public final long hits;
+    descriptor: J
+  public final long misses;
+    descriptor: J
+  public final long joins;
+    descriptor: J
+  public final long flightsStarted;
+    descriptor: J
+  public final long produced;
+    descriptor: J
+  public final long failures;
+    descriptor: J
+  public final long evictions;
+    descriptor: J
+  public final long rejectedCapacity;
+    descriptor: J
+  public final long abandonedDropped;
+    descriptor: J
+  public final long cancelledSubscribers;
+    descriptor: J
+  public final long delivered;
+    descriptor: J
+  public final long droppedStale;
+    descriptor: J
+  public final long listenerFailures;
+    descriptor: J
+  public final long version;
+    descriptor: J
+  public final int entries;
+    descriptor: I
+  public final int flights;
+    descriptor: I
+  public final long weight;
+    descriptor: J
+  public java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache$Status (public)
+public final class io.github.jichuo1.meguviz.drawable.cache.FlightCache$Status extends java.lang.Enum<io.github.jichuo1.meguviz.drawable.cache.FlightCache$Status> {
+  public static final io.github.jichuo1.meguviz.drawable.cache.FlightCache$Status READY;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Status;
+  public static final io.github.jichuo1.meguviz.drawable.cache.FlightCache$Status JOINED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Status;
+  public static final io.github.jichuo1.meguviz.drawable.cache.FlightCache$Status STARTED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Status;
+  public static final io.github.jichuo1.meguviz.drawable.cache.FlightCache$Status REJECTED_CAPACITY;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Status;
+  public static final io.github.jichuo1.meguviz.drawable.cache.FlightCache$Status REJECTED_CLOSED;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Status;
+  public static io.github.jichuo1.meguviz.drawable.cache.FlightCache$Status[] values();
+    descriptor: ()[Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Status;
+
+  public static io.github.jichuo1.meguviz.drawable.cache.FlightCache$Status valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Status;
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache$Subscriber (public)
+public interface io.github.jichuo1.meguviz.drawable.cache.FlightCache$Subscriber<V> {
+  public abstract boolean isCurrent();
+    descriptor: ()Z
+
+  public abstract void onReady(V);
+    descriptor: (Ljava/lang/Object;)V
+
+  public abstract void onFailed(java.lang.Throwable);
+    descriptor: (Ljava/lang/Throwable;)V
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache$Ticket (public)
+public final class io.github.jichuo1.meguviz.drawable.cache.FlightCache$Ticket<V> {
+  public io.github.jichuo1.meguviz.drawable.cache.FlightCache$Status status();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/cache/FlightCache$Status;
+
+  public V value();
+    descriptor: ()Ljava/lang/Object;
+
+  public boolean cancel();
+    descriptor: ()Z
+}
+
+# io.github.jichuo1.meguviz.drawable.cache.FlightCache$Weigher (public)
+public interface io.github.jichuo1.meguviz.drawable.cache.FlightCache$Weigher<V> {
+  public abstract long weigh(V);
+    descriptor: (Ljava/lang/Object;)J
+}
+
+# io.github.jichuo1.meguviz.drawable.core.CornerRadii (public)
+public final class io.github.jichuo1.meguviz.drawable.core.CornerRadii {
+  public static float[] normalize(float, float, float[]);
+    descriptor: (FF[F)[F
+}
+
+# io.github.jichuo1.meguviz.drawable.core.ParameterSlots (public)
+public final class io.github.jichuo1.meguviz.drawable.core.ParameterSlots {
+  public io.github.jichuo1.meguviz.drawable.core.ParameterSlots();
+    descriptor: ()V
+
+  public int alpha();
+    descriptor: ()I
+
+  public float progress();
+    descriptor: ()F
+
+  public float offsetX();
+    descriptor: ()F
+
+  public float offsetY();
+    descriptor: ()F
+
+  public long alphaRevision();
+    descriptor: ()J
+
+  public long progressRevision();
+    descriptor: ()J
+
+  public long offsetRevision();
+    descriptor: ()J
+
+  public boolean setAlpha(int);
+    descriptor: (I)Z
+
+  public boolean setProgress(float);
+    descriptor: (F)Z
+
+  public boolean setOffset(float, float);
+    descriptor: (FF)Z
+}
+
+# io.github.jichuo1.meguviz.drawable.core.StateMatcher (public)
+public final class io.github.jichuo1.meguviz.drawable.core.StateMatcher {
+  public static boolean matches(io.github.jichuo1.meguviz.drawable.model.StateSpec, int[]);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/StateSpec;[I)Z
+
+  public static int matchIndex(io.github.jichuo1.meguviz.drawable.model.StateColorList, int[]);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/StateColorList;[I)I
+
+  public static io.github.jichuo1.meguviz.drawable.core.StateMatcher$PreparedMatcher prepare(io.github.jichuo1.meguviz.drawable.model.StateColorList);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/StateColorList;)Lio/github/jichuo1/meguviz/drawable/core/StateMatcher$PreparedMatcher;
+}
+
+# io.github.jichuo1.meguviz.drawable.core.StateMatcher$PreparedMatcher (public)
+public final class io.github.jichuo1.meguviz.drawable.core.StateMatcher$PreparedMatcher {
+  public int matchIndex(int[]);
+    descriptor: ([I)I
+}
+
+# io.github.jichuo1.meguviz.drawable.core.StateMatcherCache (public)
+public final class io.github.jichuo1.meguviz.drawable.core.StateMatcherCache {
+  public static final long DEFAULT_MAX_WEIGHT = 1048576l;
+    descriptor: J
+  public static io.github.jichuo1.meguviz.drawable.core.StateMatcherCache shared();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/core/StateMatcherCache;
+
+  public io.github.jichuo1.meguviz.drawable.core.StateMatcherCache(long);
+    descriptor: (J)V
+
+  public io.github.jichuo1.meguviz.drawable.core.StateMatcher$PreparedMatcher acquire(io.github.jichuo1.meguviz.drawable.model.StateColorList);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/StateColorList;)Lio/github/jichuo1/meguviz/drawable/core/StateMatcher$PreparedMatcher;
+
+  public synchronized long weight();
+    descriptor: ()J
+
+  public synchronized int size();
+    descriptor: ()I
+
+  public synchronized void clear();
+    descriptor: ()V
+}
+
+# io.github.jichuo1.meguviz.drawable.model.DrawingRecipe (public)
+public final class io.github.jichuo1.meguviz.drawable.model.DrawingRecipe {
+  public io.github.jichuo1.meguviz.drawable.model.DrawingRecipe(io.github.jichuo1.meguviz.drawable.model.ShapeSpec, io.github.jichuo1.meguviz.drawable.model.FillSpec, io.github.jichuo1.meguviz.drawable.model.StrokeSpec, io.github.jichuo1.meguviz.drawable.model.LayoutMetrics);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec;Lio/github/jichuo1/meguviz/drawable/model/FillSpec;Lio/github/jichuo1/meguviz/drawable/model/StrokeSpec;Lio/github/jichuo1/meguviz/drawable/model/LayoutMetrics;)V
+
+  public static io.github.jichuo1.meguviz.drawable.model.DrawingRecipe of(io.github.jichuo1.meguviz.drawable.model.ShapeSpec, io.github.jichuo1.meguviz.drawable.model.FillSpec);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec;Lio/github/jichuo1/meguviz/drawable/model/FillSpec;)Lio/github/jichuo1/meguviz/drawable/model/DrawingRecipe;
+
+  public io.github.jichuo1.meguviz.drawable.model.DrawingRecipe withStroke(io.github.jichuo1.meguviz.drawable.model.StrokeSpec);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/StrokeSpec;)Lio/github/jichuo1/meguviz/drawable/model/DrawingRecipe;
+
+  public io.github.jichuo1.meguviz.drawable.model.DrawingRecipe withMetrics(io.github.jichuo1.meguviz.drawable.model.LayoutMetrics);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/LayoutMetrics;)Lio/github/jichuo1/meguviz/drawable/model/DrawingRecipe;
+
+  public io.github.jichuo1.meguviz.drawable.model.ShapeSpec shape();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec;
+
+  public io.github.jichuo1.meguviz.drawable.model.FillSpec fill();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/FillSpec;
+
+  public io.github.jichuo1.meguviz.drawable.model.StrokeSpec stroke();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/StrokeSpec;
+
+  public io.github.jichuo1.meguviz.drawable.model.LayoutMetrics metrics();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/LayoutMetrics;
+
+  public boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+
+  public int hashCode();
+    descriptor: ()I
+}
+
+# io.github.jichuo1.meguviz.drawable.model.FillSpec (public)
+public final class io.github.jichuo1.meguviz.drawable.model.FillSpec {
+  public static io.github.jichuo1.meguviz.drawable.model.FillSpec solid(int);
+    descriptor: (I)Lio/github/jichuo1/meguviz/drawable/model/FillSpec;
+
+  public static io.github.jichuo1.meguviz.drawable.model.FillSpec statefulSolid(io.github.jichuo1.meguviz.drawable.model.StateColorList, int);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/StateColorList;I)Lio/github/jichuo1/meguviz/drawable/model/FillSpec;
+
+  public static io.github.jichuo1.meguviz.drawable.model.FillSpec linearGradient(float, float, float, float, int[], float[]);
+    descriptor: (FFFF[I[F)Lio/github/jichuo1/meguviz/drawable/model/FillSpec;
+
+  public io.github.jichuo1.meguviz.drawable.model.FillSpec$Kind kind();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/FillSpec$Kind;
+
+  public int color();
+    descriptor: ()I
+
+  public io.github.jichuo1.meguviz.drawable.model.StateColorList stateColors();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/StateColorList;
+
+  public int fallbackColor();
+    descriptor: ()I
+
+  public float startX();
+    descriptor: ()F
+
+  public float startY();
+    descriptor: ()F
+
+  public float endX();
+    descriptor: ()F
+
+  public float endY();
+    descriptor: ()F
+
+  public int[] colors();
+    descriptor: ()[I
+
+  public float[] stops();
+    descriptor: ()[F
+
+  public boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+
+  public int hashCode();
+    descriptor: ()I
+}
+
+# io.github.jichuo1.meguviz.drawable.model.FillSpec$Kind (public)
+public final class io.github.jichuo1.meguviz.drawable.model.FillSpec$Kind extends java.lang.Enum<io.github.jichuo1.meguviz.drawable.model.FillSpec$Kind> {
+  public static final io.github.jichuo1.meguviz.drawable.model.FillSpec$Kind SOLID;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/model/FillSpec$Kind;
+  public static final io.github.jichuo1.meguviz.drawable.model.FillSpec$Kind STATEFUL_SOLID;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/model/FillSpec$Kind;
+  public static final io.github.jichuo1.meguviz.drawable.model.FillSpec$Kind LINEAR_GRADIENT;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/model/FillSpec$Kind;
+  public static io.github.jichuo1.meguviz.drawable.model.FillSpec$Kind[] values();
+    descriptor: ()[Lio/github/jichuo1/meguviz/drawable/model/FillSpec$Kind;
+
+  public static io.github.jichuo1.meguviz.drawable.model.FillSpec$Kind valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/model/FillSpec$Kind;
+}
+
+# io.github.jichuo1.meguviz.drawable.model.LayoutMetrics (public)
+public final class io.github.jichuo1.meguviz.drawable.model.LayoutMetrics {
+  public io.github.jichuo1.meguviz.drawable.model.LayoutMetrics(int, int, int, int, int, int, int, int, int, int, int, int);
+    descriptor: (IIIIIIIIIIII)V
+
+  public static io.github.jichuo1.meguviz.drawable.model.LayoutMetrics unspecified();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/LayoutMetrics;
+
+  public int intrinsicWidth();
+    descriptor: ()I
+
+  public int intrinsicHeight();
+    descriptor: ()I
+
+  public int minimumWidth();
+    descriptor: ()I
+
+  public int minimumHeight();
+    descriptor: ()I
+
+  public int paddingLeft();
+    descriptor: ()I
+
+  public int paddingTop();
+    descriptor: ()I
+
+  public int paddingRight();
+    descriptor: ()I
+
+  public int paddingBottom();
+    descriptor: ()I
+
+  public int opticalInsetLeft();
+    descriptor: ()I
+
+  public int opticalInsetTop();
+    descriptor: ()I
+
+  public int opticalInsetRight();
+    descriptor: ()I
+
+  public int opticalInsetBottom();
+    descriptor: ()I
+
+  public boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+
+  public int hashCode();
+    descriptor: ()I
+}
+
+# io.github.jichuo1.meguviz.drawable.model.Length (public)
+public final class io.github.jichuo1.meguviz.drawable.model.Length {
+  public static io.github.jichuo1.meguviz.drawable.model.Length px(float);
+    descriptor: (F)Lio/github/jichuo1/meguviz/drawable/model/Length;
+
+  public static io.github.jichuo1.meguviz.drawable.model.Length dp(float);
+    descriptor: (F)Lio/github/jichuo1/meguviz/drawable/model/Length;
+
+  public static io.github.jichuo1.meguviz.drawable.model.Length boundsFraction(float, io.github.jichuo1.meguviz.drawable.model.Length$Axis);
+    descriptor: (FLio/github/jichuo1/meguviz/drawable/model/Length$Axis;)Lio/github/jichuo1/meguviz/drawable/model/Length;
+
+  public io.github.jichuo1.meguviz.drawable.model.Length$Unit unit();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/Length$Unit;
+
+  public float value();
+    descriptor: ()F
+
+  public io.github.jichuo1.meguviz.drawable.model.Length$Axis axis();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/Length$Axis;
+
+  public boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+
+  public int hashCode();
+    descriptor: ()I
+}
+
+# io.github.jichuo1.meguviz.drawable.model.Length$Axis (public)
+public final class io.github.jichuo1.meguviz.drawable.model.Length$Axis extends java.lang.Enum<io.github.jichuo1.meguviz.drawable.model.Length$Axis> {
+  public static final io.github.jichuo1.meguviz.drawable.model.Length$Axis WIDTH;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/model/Length$Axis;
+  public static final io.github.jichuo1.meguviz.drawable.model.Length$Axis HEIGHT;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/model/Length$Axis;
+  public static io.github.jichuo1.meguviz.drawable.model.Length$Axis[] values();
+    descriptor: ()[Lio/github/jichuo1/meguviz/drawable/model/Length$Axis;
+
+  public static io.github.jichuo1.meguviz.drawable.model.Length$Axis valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/model/Length$Axis;
+}
+
+# io.github.jichuo1.meguviz.drawable.model.Length$Unit (public)
+public final class io.github.jichuo1.meguviz.drawable.model.Length$Unit extends java.lang.Enum<io.github.jichuo1.meguviz.drawable.model.Length$Unit> {
+  public static final io.github.jichuo1.meguviz.drawable.model.Length$Unit PX;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/model/Length$Unit;
+  public static final io.github.jichuo1.meguviz.drawable.model.Length$Unit DP;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/model/Length$Unit;
+  public static final io.github.jichuo1.meguviz.drawable.model.Length$Unit BOUNDS_FRACTION;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/model/Length$Unit;
+  public static io.github.jichuo1.meguviz.drawable.model.Length$Unit[] values();
+    descriptor: ()[Lio/github/jichuo1/meguviz/drawable/model/Length$Unit;
+
+  public static io.github.jichuo1.meguviz.drawable.model.Length$Unit valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/model/Length$Unit;
+}
+
+# io.github.jichuo1.meguviz.drawable.model.ShapeSpec (public)
+public final class io.github.jichuo1.meguviz.drawable.model.ShapeSpec {
+  public static io.github.jichuo1.meguviz.drawable.model.ShapeSpec rectangle();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec;
+
+  public static io.github.jichuo1.meguviz.drawable.model.ShapeSpec ellipse();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec;
+
+  public static io.github.jichuo1.meguviz.drawable.model.ShapeSpec roundRect(io.github.jichuo1.meguviz.drawable.model.Length);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/Length;)Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec;
+
+  public static io.github.jichuo1.meguviz.drawable.model.ShapeSpec roundRect(io.github.jichuo1.meguviz.drawable.model.Length...);
+    descriptor: ([Lio/github/jichuo1/meguviz/drawable/model/Length;)Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec;
+
+  public io.github.jichuo1.meguviz.drawable.model.ShapeSpec$Kind kind();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec$Kind;
+
+  public io.github.jichuo1.meguviz.drawable.model.Length[] radii();
+    descriptor: ()[Lio/github/jichuo1/meguviz/drawable/model/Length;
+
+  public boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+
+  public int hashCode();
+    descriptor: ()I
+}
+
+# io.github.jichuo1.meguviz.drawable.model.ShapeSpec$Kind (public)
+public final class io.github.jichuo1.meguviz.drawable.model.ShapeSpec$Kind extends java.lang.Enum<io.github.jichuo1.meguviz.drawable.model.ShapeSpec$Kind> {
+  public static final io.github.jichuo1.meguviz.drawable.model.ShapeSpec$Kind RECTANGLE;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec$Kind;
+  public static final io.github.jichuo1.meguviz.drawable.model.ShapeSpec$Kind ELLIPSE;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec$Kind;
+  public static final io.github.jichuo1.meguviz.drawable.model.ShapeSpec$Kind ROUND_RECT;
+    descriptor: Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec$Kind;
+  public static io.github.jichuo1.meguviz.drawable.model.ShapeSpec$Kind[] values();
+    descriptor: ()[Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec$Kind;
+
+  public static io.github.jichuo1.meguviz.drawable.model.ShapeSpec$Kind valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/model/ShapeSpec$Kind;
+}
+
+# io.github.jichuo1.meguviz.drawable.model.StateColorList (public)
+public final class io.github.jichuo1.meguviz.drawable.model.StateColorList {
+  public io.github.jichuo1.meguviz.drawable.model.StateColorList(java.util.List<io.github.jichuo1.meguviz.drawable.model.StateSpec>, int[]);
+    descriptor: (Ljava/util/List;[I)V
+
+  public int size();
+    descriptor: ()I
+
+  public io.github.jichuo1.meguviz.drawable.model.StateSpec specAt(int);
+    descriptor: (I)Lio/github/jichuo1/meguviz/drawable/model/StateSpec;
+
+  public int colorAt(int);
+    descriptor: (I)I
+
+  public boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+
+  public int hashCode();
+    descriptor: ()I
+}
+
+# io.github.jichuo1.meguviz.drawable.model.StateSpec (public)
+public final class io.github.jichuo1.meguviz.drawable.model.StateSpec {
+  public io.github.jichuo1.meguviz.drawable.model.StateSpec(int...);
+    descriptor: ([I)V
+
+  public int[] conditions();
+    descriptor: ()[I
+
+  public int size();
+    descriptor: ()I
+
+  public int conditionAt(int);
+    descriptor: (I)I
+
+  public boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+
+  public int hashCode();
+    descriptor: ()I
+}
+
+# io.github.jichuo1.meguviz.drawable.model.StrokeSpec (public)
+public final class io.github.jichuo1.meguviz.drawable.model.StrokeSpec {
+  public io.github.jichuo1.meguviz.drawable.model.StrokeSpec(io.github.jichuo1.meguviz.drawable.model.Length, int);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/model/Length;I)V
+
+  public io.github.jichuo1.meguviz.drawable.model.Length width();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/model/Length;
+
+  public int color();
+    descriptor: ()I
+
+  public boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+
+  public int hashCode();
+    descriptor: ()I
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapeCapabilities (public)
+public final class io.github.jichuo1.meguviz.drawable.spi.ShapeCapabilities {
+  public static final java.lang.String CANVAS_SOFTWARE = "meguviz.drawable.canvas-software";
+    descriptor: Ljava/lang/String;
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapeOutput (public)
+public interface io.github.jichuo1.meguviz.drawable.spi.ShapeOutput {
+  public abstract void vertex(float, float);
+    descriptor: (FF)V
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapePlanView (public)
+public interface io.github.jichuo1.meguviz.drawable.spi.ShapePlanView {
+  public abstract int schemaVersion();
+    descriptor: ()I
+
+  public abstract int vertexCount();
+    descriptor: ()I
+
+  public abstract float xAt(int);
+    descriptor: (I)F
+
+  public abstract float yAt(int);
+    descriptor: (I)F
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapePreparation (public)
+public final class io.github.jichuo1.meguviz.drawable.spi.ShapePreparation {
+  public boolean supported();
+    descriptor: ()Z
+
+  public java.lang.String requestedId();
+    descriptor: ()Ljava/lang/String;
+
+  public java.lang.String providerId();
+    descriptor: ()Ljava/lang/String;
+
+  public boolean fellBack();
+    descriptor: ()Z
+
+  public io.github.jichuo1.meguviz.drawable.spi.ShapePlanView plan();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/spi/ShapePlanView;
+
+  public java.util.List<java.lang.String> reasons();
+    descriptor: ()Ljava/util/List;
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapeProvider (public)
+public interface io.github.jichuo1.meguviz.drawable.spi.ShapeProvider {
+  public abstract void prepare(io.github.jichuo1.meguviz.drawable.spi.ShapeRequest, io.github.jichuo1.meguviz.drawable.spi.ShapeOutput);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/spi/ShapeRequest;Lio/github/jichuo1/meguviz/drawable/spi/ShapeOutput;)V
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapeProviderConformance (public)
+public final class io.github.jichuo1.meguviz.drawable.spi.ShapeProviderConformance {
+  public static java.util.List<java.lang.String> check(io.github.jichuo1.meguviz.drawable.spi.ShapeProviderDescriptor, io.github.jichuo1.meguviz.drawable.spi.ShapeProviderFactory, java.util.List<io.github.jichuo1.meguviz.drawable.spi.ShapeRequest>);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/spi/ShapeProviderDescriptor;Lio/github/jichuo1/meguviz/drawable/spi/ShapeProviderFactory;Ljava/util/List;)Ljava/util/List;
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapeProviderDescriptor (public)
+public final class io.github.jichuo1.meguviz.drawable.spi.ShapeProviderDescriptor {
+  public io.github.jichuo1.meguviz.drawable.spi.ShapeProviderDescriptor(java.lang.String, int, int, java.lang.String, int, java.util.List<java.lang.String>);
+    descriptor: (Ljava/lang/String;IILjava/lang/String;ILjava/util/List;)V
+
+  public io.github.jichuo1.meguviz.drawable.spi.ShapeProviderDescriptor(java.lang.String, int, int, java.lang.String, int, java.util.List<java.lang.String>, java.util.Set<java.lang.String>, java.util.List<java.lang.String>);
+    descriptor: (Ljava/lang/String;IILjava/lang/String;ILjava/util/List;Ljava/util/Set;Ljava/util/List;)V
+
+  public java.lang.String id();
+    descriptor: ()Ljava/lang/String;
+
+  public int spiMajor();
+    descriptor: ()I
+
+  public int schemaVersion();
+    descriptor: ()I
+
+  public java.lang.String implementationVersion();
+    descriptor: ()Ljava/lang/String;
+
+  public int maxVertices();
+    descriptor: ()I
+
+  public java.util.List<java.lang.String> dependencies();
+    descriptor: ()Ljava/util/List;
+
+  public java.util.Set<java.lang.String> requiredCapabilities();
+    descriptor: ()Ljava/util/Set;
+
+  public java.util.List<java.lang.String> fallbacks();
+    descriptor: ()Ljava/util/List;
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapeProviderFactory (public)
+public interface io.github.jichuo1.meguviz.drawable.spi.ShapeProviderFactory {
+  public abstract io.github.jichuo1.meguviz.drawable.spi.ShapeProvider create();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/spi/ShapeProvider;
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapeProviderRegistry (public)
+public final class io.github.jichuo1.meguviz.drawable.spi.ShapeProviderRegistry {
+  public long revision();
+    descriptor: ()J
+
+  public boolean contains(java.lang.String);
+    descriptor: (Ljava/lang/String;)Z
+
+  public java.util.Set<java.lang.String> capabilities();
+    descriptor: ()Ljava/util/Set;
+
+  public io.github.jichuo1.meguviz.drawable.spi.ShapeProviderDescriptor descriptor(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/spi/ShapeProviderDescriptor;
+
+  public java.util.List<java.lang.String> ids();
+    descriptor: ()Ljava/util/List;
+
+  public io.github.jichuo1.meguviz.drawable.spi.ShapeProviderRegistry$Builder toBuilder();
+    descriptor: ()Lio/github/jichuo1/meguviz/drawable/spi/ShapeProviderRegistry$Builder;
+
+  public io.github.jichuo1.meguviz.drawable.spi.ShapePlanView prepare(java.lang.String, io.github.jichuo1.meguviz.drawable.spi.ShapeRequest);
+    descriptor: (Ljava/lang/String;Lio/github/jichuo1/meguviz/drawable/spi/ShapeRequest;)Lio/github/jichuo1/meguviz/drawable/spi/ShapePlanView;
+
+  public io.github.jichuo1.meguviz.drawable.spi.ShapePreparation prepareWithFallback(java.lang.String, io.github.jichuo1.meguviz.drawable.spi.ShapeRequest);
+    descriptor: (Ljava/lang/String;Lio/github/jichuo1/meguviz/drawable/spi/ShapeRequest;)Lio/github/jichuo1/meguviz/drawable/spi/ShapePreparation;
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapeProviderRegistry$Builder (public)
+public final class io.github.jichuo1.meguviz.drawable.spi.ShapeProviderRegistry$Builder {
+  public io.github.jichuo1.meguviz.drawable.spi.ShapeProviderRegistry$Builder(int, int);
+    descriptor: (II)V
+
+  public io.github.jichuo1.meguviz.drawable.spi.ShapeProviderRegistry$Builder offer(java.lang.String...);
+    descriptor: ([Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/spi/ShapeProviderRegistry$Builder;
+
+  public io.github.jichuo1.meguviz.drawable.spi.ShapeProviderRegistry$Builder register(io.github.jichuo1.meguviz.drawable.spi.ShapeProviderDescriptor, io.github.jichuo1.meguviz.drawable.spi.ShapeProviderFactory);
+    descriptor: (Lio/github/jichuo1/meguviz/drawable/spi/ShapeProviderDescriptor;Lio/github/jichuo1/meguviz/drawable/spi/ShapeProviderFactory;)Lio/github/jichuo1/meguviz/drawable/spi/ShapeProviderRegistry$Builder;
+
+  public io.github.jichuo1.meguviz.drawable.spi.ShapeProviderRegistry$Builder unregister(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/jichuo1/meguviz/drawable/spi/ShapeProviderRegistry$Builder;
+
+  public io.github.jichuo1.meguviz.drawable.spi.ShapeProviderRegistry snapshot(long);
+    descriptor: (J)Lio/github/jichuo1/meguviz/drawable/spi/ShapeProviderRegistry;
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapeRequest (public)
+public final class io.github.jichuo1.meguviz.drawable.spi.ShapeRequest {
+  public io.github.jichuo1.meguviz.drawable.spi.ShapeRequest(float...);
+    descriptor: ([F)V
+
+  public int size();
+    descriptor: ()I
+
+  public float parameterAt(int);
+    descriptor: (I)F
+
+  public float[] parameters();
+    descriptor: ()[F
+}
+
+# io.github.jichuo1.meguviz.drawable.spi.ShapeUnsupportedException (public)
+public final class io.github.jichuo1.meguviz.drawable.spi.ShapeUnsupportedException extends java.lang.RuntimeException {
+  public io.github.jichuo1.meguviz.drawable.spi.ShapeUnsupportedException(java.lang.String);
+    descriptor: (Ljava/lang/String;)V
+}
