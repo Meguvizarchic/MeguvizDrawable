@@ -41,7 +41,10 @@ public final class Length {
                 && Float.floatToIntBits(value) == Float.floatToIntBits(that.value);
     }
     @Override public int hashCode() {
-        int result = 31 * unit.hashCode() + Float.floatToIntBits(value);
-        return 31 * result + (axis == null ? 0 : axis.hashCode());
+        // Enum.hashCode() is an identity hash: it differs between JVM processes, so any recipe
+        // containing a Length used to hash differently in each process. Ordinals are part of the
+        // compiled enum contract and make the hash of an immutable value reproducible everywhere.
+        int result = 31 * unit.ordinal() + Float.floatToIntBits(value);
+        return 31 * result + (axis == null ? 0 : axis.ordinal());
     }
 }

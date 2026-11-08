@@ -212,13 +212,17 @@ transforms cache 中真实的 1.2.0 runtime jar 在宿主 JVM 上编译并运行
 读到 0 只会重算，不会读到错值）；`equals` 在双方 hash 都已算出且不等时提前返回 false（相等对象 hash 必相等，
 语义不变）。`FillSpec`/`ShapeSpec` 的 hash 改用枚举 `ordinal()` 而非身份 hash，使 hash 值跨进程可复现
 （`hashCode` 的具体数值从未是合同）。`FillSpec.solid`/`statefulSolid` 共享空数组常量（空数组不可变）。
+r2 复核修正：`Length.hashCode()` 当时仍用枚举身份 hash，经 `ShapeSpec`/`StrokeSpec` 传入 recipe，
+所以「跨进程可复现」在 r1 并不成立；r2 把 `Length` 也改为 `ordinal()`，并由 `CoreAdditionalContractTest`
+的值型哈希断言钉住。基线实测：`Length.dp(12)` 旧 hash `762027932`、值型期望 `-423623743`（HotSpot 21，
+身份 hash 本身每次进程都不同）。
 上一提交已让 `LayoutMetrics.unspecified()` 返回共享常量。
 
 方法：`benchmark/ModelProbe.java`，宿主 JVM（OpenJDK 21.0.12.1，Apple M4，默认 JIT/逃逸分析），
 改前 = `b087b3f` 的 core 源码、改后 = 本提交，同一探针二进制；每进程 4 轮热身 + 7 轮测量、每轮 1,000,000 次；
 改前/改后各 5 个进程交错运行（old,new,old,new…）。夹具：8 条状态规则 + 描边 + 圆角的按钮 recipe，
-HashMap 中 65 个 recipe，查找键与表内键相等但不是同一实例。原始 CSV 在本地
-`docs/engineering/evidence/runs/2026-11-08-model-probe/`（不入库）。
+HashMap 中 65 个 recipe，查找键与表内键相等但不是同一实例。原始 CSV 已入库：
+`docs/engineering/evidence/runs/2026-11-08-model-probe/model-probe.csv`（环境与局限见 `evidence/README.md`）。
 
 | 指标 | 改前（5 进程中位数范围 / 总中位数 / p95） | 改后 |
 |---|---|---|

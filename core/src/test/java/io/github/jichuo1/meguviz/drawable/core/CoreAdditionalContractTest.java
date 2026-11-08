@@ -63,8 +63,29 @@ final class CoreAdditionalContractTest {
                 && FillSpec.solid(1).equals(FillSpec.solid(1)) && FillSpec.solid(1).hashCode() == FillSpec.solid(1).hashCode()
                 && FillSpec.solid(1).colors().length == 0 && FillSpec.solid(1).colors() != FillSpec.solid(1).colors()
                 && !FillSpec.solid(1).equals(FillSpec.solid(2))
-                && new StateSpec(5, -6).hashCode() == Arrays.hashCode(new int[] {5, -6}),
+                && new StateSpec(5, -6).hashCode() == Arrays.hashCode(new int[] {5, -6})
+                && lengthHashIsValueBased(),
                 "convenience factories equal spelled-out recipes and cached hashes equal fresh ones");
+    }
+
+    /**
+     * A Length hash must be derived only from its public value, otherwise recipes containing a
+     * Length hash differently in every JVM process and the "hash is reproducible" claim is false.
+     */
+    private static boolean lengthHashIsValueBased() {
+        Length[] values = {
+            Length.px(0), Length.dp(12), Length.boundsFraction(0.25f, Length.Axis.WIDTH),
+            Length.boundsFraction(1f, Length.Axis.HEIGHT),
+        };
+        for (Length value : values) {
+            int expected = 31 * (31 * value.unit().ordinal() + Float.floatToIntBits(value.value()))
+                    + (value.axis() == null ? 0 : value.axis().ordinal());
+            if (value.hashCode() != expected) return false;
+            if (value.equals(Length.px(value.value())) && value.unit() == Length.Unit.PX
+                    && value.hashCode() != Length.px(value.value()).hashCode()) return false;
+        }
+        return Length.boundsFraction(0.25f, Length.Axis.WIDTH).hashCode()
+                == Length.boundsFraction(0.25f, Length.Axis.WIDTH).hashCode();
     }
 
     /** The guide's code is this sample; running it keeps the documented results true. */

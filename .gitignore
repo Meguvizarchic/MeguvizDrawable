@@ -4,9 +4,10 @@ local.properties
 .idea/
 *.iml
 
-# Original engineering inputs and machine-specific evidence stay local.
+# Original engineering inputs stay local. Measured probe outputs under evidence/runs are
+# versioned: a performance claim without its raw CSV is not reproducible.
 docs/engineering/MEGUVIZDRAWABLE_ENGINEERING_PLAN.md
 docs/engineering/MEGUVIZDRAWABLE_PROJECT_PROMPT.md
 docs/engineering/README.md
-docs/engineering/evidence/
+docs/engineering/evidence/*.local
 docs/engineering/tools/
