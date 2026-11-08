@@ -214,8 +214,9 @@ transforms cache 中真实的 1.2.0 runtime jar 在宿主 JVM 上编译并运行
 （`hashCode` 的具体数值从未是合同）。`FillSpec.solid`/`statefulSolid` 共享空数组常量（空数组不可变）。
 r2 复核修正：`Length.hashCode()` 当时仍用枚举身份 hash，经 `ShapeSpec`/`StrokeSpec` 传入 recipe，
 所以「跨进程可复现」在 r1 并不成立；r2 把 `Length` 也改为 `ordinal()`，并由 `CoreAdditionalContractTest`
-的值型哈希断言钉住。基线实测：`Length.dp(12)` 旧 hash `762027932`、值型期望 `-423623743`（HotSpot 21，
-身份 hash 本身每次进程都不同）。
+的值型哈希断言钉住。基线复核（HotSpot 21 单进程）：旧的 `Length.dp(12).hashCode()` 不等于由
+`unit().ordinal()` 与 `value()` 复算出的值；身份 hash 每个 JVM 进程都不同，因此**不引用具体数值**，
+只用「不等于值型复算值」这一可重复判据，判据已固化为合同断言。
 上一提交已让 `LayoutMetrics.unspecified()` 返回共享常量。
 
 方法：`benchmark/ModelProbe.java`，宿主 JVM（OpenJDK 21.0.12.1，Apple M4，默认 JIT/逃逸分析），
@@ -252,7 +253,7 @@ HashMap 中 65 个 recipe，查找键与表内键相等但不是同一实例。�
 
 方法：`benchmark/FlightCacheHitLatencyProbe.java`，宿主 OpenJDK 21.0.12.1 / Apple M4；改前 = `c006a11`、改后 = 本提交，
 同一探针二进制；单线程与“有竞争”（另一线程持续 `computeNow` 不同键，抢同一把锁）两种模式，改前/改后各 5 进程交错，
-每进程 4+7 轮 × 2,000,000 次。原始 CSV 在本地 `docs/engineering/evidence/runs/2026-11-08-flightcache-hit/`。
+每进程 4+7 轮 × 2,000,000 次。原始 CSV 已入库：`docs/engineering/evidence/runs/2026-11-08-flightcache-hit/fc-hit-probe.csv`（环境与局限见 `evidence/README.md`）。
 
 | 模式 / 路径 | 改前 中位数（进程中位数范围，p95） | 改后 |
 |---|---|---|
