@@ -31,6 +31,8 @@ final class FlightCacheContractTest {
         executorFailureIsNotARefusal();
         posterErrorIsCountedAndDoesNotLeak();
         evictionListenerErrorIsCountedNotThrown();
+        oversizeValueIsDeliveredButNeverCached();
+        runningFlightJoinsTheCachedValue();
         if (stress()) {
             cancellation();
             flightLimitAndAbandonedWork();
@@ -48,6 +50,55 @@ final class FlightCacheContractTest {
             retentionFastPath();
         }
         return checks;
+    }
+
+    /**
+     * A value heavier than the entire budget is delivered but never cached. The previous code put
+     * it in and immediately evicted it, telling the listener it was reclaimed before onReady ran.
+     */
+    private static void oversizeValueIsDeliveredButNeverCached() {
+        Env env = new Env();
+        FlightCache<String, String> cache = env.builder().maxWeight(10)
+                .weigher(new FlightCache.Weigher<String>() {
+                    @Override public long weigh(String value) { return 11L; }
+                }).build();
+        Probe probe = new Probe("big");
+        cache.request("big", env.producer(), probe);
+        env.workers.runAll();
+        env.owner.drain();
+        check(cache.peek("big") == null && cache.stats().weight == 0
+                        && cache.version() == 0 && cache.stats().produced == 0
+                        && env.evictions.isEmpty()
+                        && probe.events.equals(listOf("ready:v-big")),
+                "an oversize value is delivered but never cached or announced as evicted");
+    }
+
+    /**
+     * Deterministic RUNNING interleave: while a flight's producer runs (no cache lock held),
+     * computeNow publishes the same key. The flight must then join that already cached value
+     * instead of replacing it, emitting REPLACED, or bumping version a second time.
+     */
+    private static void runningFlightJoinsTheCachedValue() throws Exception {
+        final Env env = new Env();
+        final FlightCache<String, String> cache = env.builder().build();
+        final String[] joined = new String[1];
+        FlightCache.Producer<String, String> flightProducer = new FlightCache.Producer<String, String>() {
+            @Override public String produce(String key, FlightCache.Cancellation cancellation) throws Exception {
+                joined[0] = cache.computeNow(key, new FlightCache.Producer<String, String>() {
+                    @Override public String produce(String k, FlightCache.Cancellation c) { return "v-first"; }
+                });
+                return "v-second";
+            }
+        };
+        Probe waiting = new Probe("waiting");
+        cache.request("k", flightProducer, waiting);
+        env.workers.runAll();
+        env.owner.drain();
+        check("v-first".equals(cache.peek("k")) && "v-first".equals(joined[0])
+                        && waiting.events.equals(listOf("ready:v-first"))
+                        && cache.version() == 1 && cache.stats().produced == 1
+                        && env.evictions.isEmpty(),
+                "a superseded running flight joins the cached value without REPLACED or a version bump");
     }
 
     /** Runs tasks only when the test says so. */

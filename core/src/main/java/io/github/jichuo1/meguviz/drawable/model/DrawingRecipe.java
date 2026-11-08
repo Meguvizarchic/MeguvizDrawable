@@ -6,6 +6,9 @@ public final class DrawingRecipe {
     private final FillSpec fill;
     private final StrokeSpec stroke;
     private final LayoutMetrics metrics;
+    /** Private, so identity never leaks into the public API (unlike a shared unspecified() singleton). */
+    private static final LayoutMetrics DEFAULT_METRICS =
+            new LayoutMetrics(-1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     /** Lazily cached {@link #hashCode()}; 0 means not computed yet (the String idiom, benign race). */
     private int hash;
 
@@ -21,10 +24,11 @@ public final class DrawingRecipe {
     /**
      * Shape and fill only: no stroke and {@link LayoutMetrics#unspecified() unspecified} metrics.
      * Equal to {@code new DrawingRecipe(shape, fill, null, LayoutMetrics.unspecified())} and
-     * allocates nothing beyond the returned recipe.
+     * allocates nothing beyond the returned recipe. The default metrics is a private constant,
+     * equal by value but not by identity to {@link LayoutMetrics#unspecified()}.
      */
     public static DrawingRecipe of(ShapeSpec shape, FillSpec fill) {
-        return new DrawingRecipe(shape, fill, null, LayoutMetrics.unspecified());
+        return new DrawingRecipe(shape, fill, null, DEFAULT_METRICS);
     }
     /** A recipe equal to this one with {@code stroke} (null removes the stroke). This recipe is unchanged. */
     public DrawingRecipe withStroke(StrokeSpec stroke) {

@@ -24,9 +24,18 @@ public final class LayoutMetrics {
         this.opticalInsetLeft = opticalInsetLeft; this.opticalInsetTop = opticalInsetTop;
         this.opticalInsetRight = opticalInsetRight; this.opticalInsetBottom = opticalInsetBottom;
     }
-    private static final LayoutMetrics UNSPECIFIED = new LayoutMetrics(-1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-    /** Unspecified intrinsic size, no minimum, padding or insets. Immutable, so one shared instance is returned. */
-    public static LayoutMetrics unspecified() { return UNSPECIFIED; }
+    /**
+     * Unspecified intrinsic size, no minimum, padding or insets.
+     *
+     * Each call returns a new instance: identity was never part of the published 1.0.0 contract,
+     * and a shared singleton would silently change the meaning of {@code ==} for existing callers.
+     * Compare with {@link #equals(Object)} or the accessors instead. {@code DrawingRecipe} keeps a
+     * private default instance for {@code of(...)}, so the zero-extra-allocation path is preserved
+     * without exposing identity as a contract.
+     */
+    public static LayoutMetrics unspecified() {
+        return new LayoutMetrics(-1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    }
     public int intrinsicWidth() { return intrinsicWidth; }
     public int intrinsicHeight() { return intrinsicHeight; }
     public int minimumWidth() { return minimumWidth; }

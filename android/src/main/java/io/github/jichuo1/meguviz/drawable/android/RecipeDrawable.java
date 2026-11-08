@@ -272,6 +272,18 @@ public final class RecipeDrawable extends Drawable {
         return stateMatcher;
     }
 
+    /**
+     * Conservative by design. The current Android API reference marks
+     * {@code Drawable.getOpacity()} as deprecated and "no longer used in graphics optimisations",
+     * so on recent platforms a dynamic value cannot buy a faster draw path. On older platforms
+     * (this module's minSdk is 21) a host may still query opacity once when choosing a window
+     * background format; alpha, tint, ColorFilter, state and gradient all change coverage at
+     * runtime, so returning OPAQUE for any of those combinations risks stale pixels behind this
+     * drawable. Keeping the conservative answer therefore avoids both a wrong optimisation and a
+     * rendering change for 1.0.0 consumers. This is a contract-level argument, not a measured
+     * device result: the deprecation wording comes from the API reference page and no API 21-28
+     * device matrix has been run. An opt-in opaque hint would need that matrix plus an ABI update.
+     */
     @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
 
     /**

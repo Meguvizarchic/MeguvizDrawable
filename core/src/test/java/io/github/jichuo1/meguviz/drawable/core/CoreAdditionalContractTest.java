@@ -59,7 +59,10 @@ final class CoreAdditionalContractTest {
                 && !sugared.withStroke(null).equals(sugared) && sugared.withStroke(null).equals(DrawingRecipe.of(shape, fill))
                 && sugared.withMetrics(LayoutMetrics.unspecified()).equals(sugared)
                 && !sugared.withMetrics(new LayoutMetrics(4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)).equals(sugared)
-                && LayoutMetrics.unspecified() == LayoutMetrics.unspecified()
+                && LayoutMetrics.unspecified().equals(LayoutMetrics.unspecified())
+                && LayoutMetrics.unspecified() != LayoutMetrics.unspecified()
+                && LayoutMetrics.unspecified().intrinsicWidth() == -1
+                && DrawingRecipe.of(shape, fill).metrics().equals(LayoutMetrics.unspecified())
                 && FillSpec.solid(1).equals(FillSpec.solid(1)) && FillSpec.solid(1).hashCode() == FillSpec.solid(1).hashCode()
                 && FillSpec.solid(1).colors().length == 0 && FillSpec.solid(1).colors() != FillSpec.solid(1).colors()
                 && !FillSpec.solid(1).equals(FillSpec.solid(2))

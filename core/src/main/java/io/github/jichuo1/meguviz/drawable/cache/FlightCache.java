@@ -431,10 +431,14 @@ public final class FlightCache<K, V> implements AutoCloseable {
     }
 
     /**
-     * Produces the value on the calling thread and caches it, or returns the cached one. It never
+     * Produces the value on the calling thread and returns it, or returns the cached one. It never
      * waits for the executor, so it cannot deadlock behind queued work; the price is that a flight
      * already running for the key may produce the same value again. A flight still queued for the key
      * is completed with this value instead of running.
+     *
+     * The produced value is normally cached, but a value heavier than the configured
+     * {@link Builder#maxWeight} is returned to the caller without being cached (and without an
+     * eviction notification). Callers must not assume {@code peek(key)} is non-null afterwards.
      */
     public V computeNow(K key, Producer<K, V> producer) throws Exception {
         Objects.requireNonNull(key, "key");
@@ -476,7 +480,13 @@ public final class FlightCache<K, V> implements AutoCloseable {
         return result;
     }
 
-    /** Increments on every published value, so a host can tell that something new became available. */
+    /**
+     * Increments once for each value that actually enters the cache, so a host can tell that new
+     * content became available. A value heavier than the whole budget, or one superseded by a
+     * concurrent publish of the same key, is delivered to callers but never cached and never bumps
+     * this counter. Hosts that need to observe *every* delivery (including oversize ones) must use
+     * {@link Subscriber#onReady} rather than polling this value.
+     */
     public long version() {
         synchronized (lock) {
             return version;
@@ -573,7 +583,10 @@ public final class FlightCache<K, V> implements AutoCloseable {
             if (failure != null) {
                 counts[FAILURES]++;
             } else if (!closed) {
-                publish(flight.key, value, cost, evicted);
+                // A running flight may have been overtaken by computeNow for the same key.
+                // Deliver the value that actually became cached, so every subscriber observes
+                // the same reference and no REPLACED eviction is emitted for a superseded result.
+                value = publish(flight.key, value, cost, evicted);
             }
             targets = drain(flight);
         }
@@ -582,13 +595,29 @@ public final class FlightCache<K, V> implements AutoCloseable {
         if (failure instanceof Error) throw (Error) failure;
     }
 
-    /** Caller holds the lock. */
-    private void publish(K key, V value, long cost, List<Eviction<K, V>> evicted) {
-        Cached<V> previous = cache.put(key, new Cached<V>(value, cost));
-        if (previous != null) {
-            weight -= previous.weight;
-            evicted.add(new Eviction<K, V>(key, previous.value, EvictionReason.REPLACED));
-        }
+    /**
+     * Caller holds the lock. Returns the value that is actually observable for {@code key}.
+     *
+     * Two rules keep the cache's observable state honest:
+     * (1) A value heavier than the whole budget is delivered to its callers but never cached.
+     *     Caching it would immediately evict it again, which used to notify the eviction listener
+     *     that a value was reclaimed before that value had even been delivered.
+     * (2) Publishing a key that is already cached is idempotent: superseded concurrent work must
+     *     not replace the cached reference, emit a REPLACED eviction, or bump {@link #version()}.
+     *     This matches {@link #computeNow}, which already returned the existing value in that case.
+     *
+     * Ownership boundary: in case (2) the superseded producer's value is neither cached nor
+     * delivered, and no eviction listener is notified for it. If such a value owns native or pooled
+     * resources, the producer must release them before returning (or when its
+     * {@link Cancellation} is signalled); the cache cannot report a value it never adopted. A
+     * dedicated "superseded" notification would require a new public enum constant and ABI dump,
+     * and is deliberately deferred rather than smuggled into {@link EvictionReason#REPLACED}.
+     */
+    private V publish(K key, V value, long cost, List<Eviction<K, V>> evicted) {
+        Cached<V> existing = cache.get(key);
+        if (existing != null) return existing.value;
+        if (maxWeight != Long.MAX_VALUE && cost > maxWeight) return value;
+        cache.put(key, new Cached<V>(value, cost));
         weight += cost;
         version++;
         counts[PRODUCED]++;
@@ -600,6 +629,7 @@ public final class FlightCache<K, V> implements AutoCloseable {
             counts[EVICTIONS]++;
             evicted.add(new Eviction<K, V>(entry.getKey(), entry.getValue().value, EvictionReason.CAPACITY));
         }
+        return value;
     }
 
     /**
