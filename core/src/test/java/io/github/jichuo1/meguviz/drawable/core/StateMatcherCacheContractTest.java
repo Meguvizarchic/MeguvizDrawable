@@ -22,6 +22,7 @@ public final class StateMatcherCacheContractTest {
         differentConditionsDoNotShare();
         fallbackIsNeverCached();
         oversizedTableIsRejectedBeforeBuilding();
+        distinctIdScanCountsBeforeBuilding();
         tinyBudgetRejectsInsteadOfChurning();
         lruKeepsTheRecentlyUsedEntry();
         sharedTableStillReadsTheCallersOwnColors();
@@ -50,8 +51,8 @@ public final class StateMatcherCacheContractTest {
         StateMatcherCache cache = new StateMatcherCache(1L << 20);
         StateMatcher.PreparedMatcher first = cache.acquire(rules(1, 2, pressed, -pressed));
         StateMatcher.PreparedMatcher second = cache.acquire(rules(3, 4, pressed, -pressed));
-        check(first != null && first == second, "same conditions share one compiled table");
-        check(cache.size() == 1, "sharing keeps one cache entry");
+        check(first != null && first == second && cache.size() == 1,
+                "same conditions share one compiled table and one cache entry");
     }
 
     private static void differentConditionsDoNotShare() {
@@ -77,20 +78,40 @@ public final class StateMatcherCacheContractTest {
         int[] ids = new int[16];
         for (int i = 0; i < ids.length; i++) ids[i] = 0x01010000 + i;
         StateMatcherCache tight = new StateMatcherCache(1L << 19);
-        check(tight.acquire(rules(1, 2, ids)) == null, "an oversized table is rejected");
-        check(tight.size() == 0 && tight.weight() == 0, "a rejected table leaves no entry");
+        check(tight.acquire(rules(1, 2, ids)) == null && tight.size() == 0 && tight.weight() == 0,
+                "an oversized table is rejected and leaves no entry");
 
         StateMatcherCache roomy = new StateMatcherCache(1L << 20);
-        check(roomy.acquire(rules(1, 2, ids)) != null, "K=16 fits the default budget");
-        check(roomy.size() == 1, "K=16 is cached at the default budget");
+        check(roomy.acquire(rules(1, 2, ids)) != null && roomy.size() == 1,
+                "K=16 fits and is cached at the default budget");
+    }
+
+    /**
+     * The admission outcome alone cannot tell "rejected before building" from "built, then
+     * rejected", because the post-build check enforces the same rule. Pin the scan itself: a scan
+     * that never counts makes every early rejection dead code and pays the full build.
+     */
+    private static void distinctIdScanCountsBeforeBuilding() {
+        int[] three = {0x01010000, -0x01010001, 0x01010002};
+        int[] sixteen = new int[16];
+        int[] seventeen = new int[17];
+        for (int i = 0; i < seventeen.length; i++) {
+            if (i < 16) sixteen[i] = 0x01010000 + i;
+            seventeen[i] = 0x01010000 + i;
+        }
+        check(StateMatcherCache.distinctIds(rules(1, 2, three)) == 3
+                && StateMatcherCache.distinctIds(rules(1, 2, 0x01010000, -0x01010000)) == 1
+                && StateMatcherCache.distinctIds(rules(1, 2, sixteen)) == 16
+                && StateMatcherCache.distinctIds(rules(1, 2, seventeen)) == 17,
+                "the pre-build scan counts distinct ids and reports the 17th as over the bound");
     }
 
     private static void tinyBudgetRejectsInsteadOfChurning() {
         // A budget smaller than one entry would build and immediately evict on every call.
         int[] ids = {0x01010000, 0x01010001};
         StateMatcherCache cache = new StateMatcherCache(1);
-        check(cache.acquire(rules(1, 2, ids)) == null, "a table larger than the whole budget is refused");
-        check(cache.size() == 0 && cache.weight() == 0, "no churn entry is left behind");
+        check(cache.acquire(rules(1, 2, ids)) == null && cache.size() == 0 && cache.weight() == 0,
+                "a table larger than the whole budget is refused and leaves no churn entry");
     }
 
     private static void lruKeepsTheRecentlyUsedEntry() {
@@ -158,8 +179,8 @@ public final class StateMatcherCacheContractTest {
         start.countDown();
         for (Thread thread : threads) thread.join(10_000);
         if (failure.get() != null) throw new AssertionError(failure.get());
-        check(cache.size() == 1, "concurrent misses keep a single entry");
-        check(cache.weight() > 0 && cache.weight() <= (1L << 20), "weight is counted once and within the bound");
+        check(cache.size() == 1 && cache.weight() > 0 && cache.weight() <= (1L << 20),
+                "concurrent misses keep a single entry whose weight is counted once");
         check(cache.acquire(list) != null, "the shared entry is still usable after the race");
     }
 
@@ -174,8 +195,7 @@ public final class StateMatcherCacheContractTest {
         }
         cache.acquire(rules(1, 2, first));
         cache.acquire(rules(1, 2, second));
-        check(cache.size() == 1, "weight bound evicts down to the budget");
-        check(cache.weight() <= 200, "weight stays within the bound");
+        check(cache.size() == 1 && cache.weight() <= 200, "weight bound evicts down to the budget");
     }
 
     private static void clearResetsWeight() {

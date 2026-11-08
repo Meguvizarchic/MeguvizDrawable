@@ -116,9 +116,10 @@ public final class StateMatcherCache {
     /**
      * Counts distinct condition IDs without building a table, stopping once the count exceeds the
      * largest table the matcher can compile. The scan is O(rules × ids) and lets the admission
-     * check reject an oversized table before paying the preparation cost.
+     * check reject an oversized table before paying the preparation cost. Package-private for the
+     * contract test, which pins the count itself (the admission outcome cannot reveal a dead scan).
      */
-    private static int distinctIds(StateColorList rules) {
+    static int distinctIds(StateColorList rules) {
         int count = rules.size();
         int[] seen = new int[MAX_DISTINCT_SCAN];
         int distinct = 0;
@@ -133,7 +134,8 @@ public final class StateMatcherCache {
                     if (seen[k] == id) { known = true; break; }
                 }
                 if (known) continue;
-                if (distinct == MAX_DISTINCT_SCAN - 1) return MAX_DISTINCT_SCAN; // over any table                seen[distinct++] = id;
+                if (distinct == MAX_DISTINCT_SCAN - 1) return MAX_DISTINCT_SCAN; // over any table
+                seen[distinct++] = id;
             }
         }
         return distinct;
