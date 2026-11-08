@@ -217,7 +217,9 @@ r2 复核修正：`Length.hashCode()` 当时仍用枚举身份 hash，经 `Shape
 的值型哈希断言钉住。基线复核（HotSpot 21 单进程）：旧的 `Length.dp(12).hashCode()` 不等于由
 `unit().ordinal()` 与 `value()` 复算出的值；身份 hash 每个 JVM 进程都不同，因此**不引用具体数值**，
 只用「不等于值型复算值」这一可重复判据，判据已固化为合同断言。
-上一提交已让 `LayoutMetrics.unspecified()` 返回共享常量。
+上一提交曾让 `LayoutMetrics.unspecified()` 返回共享常量；r3 已撤回该改动（已发布 1.0.0 每次返回新实例，身份语义不可静默改变），改为由
+`DrawingRecipe.of` 使用**私有**默认常量，因此 `of()` 的 32 B 收益保留，而 `new LayoutMetrics(...)` 的 96 B 构造成本恢复原状。
+下表「32 B」一行只对 `DrawingRecipe.of` 与私有常量成立，不能推广到公开的 `unspecified()`。
 
 方法：`benchmark/ModelProbe.java`，宿主 JVM（OpenJDK 21.0.12.1，Apple M4，默认 JIT/逃逸分析），
 改前 = `b087b3f` 的 core 源码、改后 = 本提交，同一探针二进制；每进程 4 轮热身 + 7 轮测量、每轮 1,000,000 次；
@@ -229,9 +231,9 @@ HashMap 中 65 个 recipe，查找键与表内键相等但不是同一实例。�
 |---|---|---|
 | 已算过 hash 的同一 recipe 再次 `hashCode()` | 26.8–35.2 / 29.3 / 40.9 ns | 0.049 ns（循环内只剩字段读，JIT 外提，不代表单次调用成本）|
 | `HashMap.get`（相等但非同一的键） | 96.7–117.1 / 106.3 / 145.0 ns | 59.5–102.6 / 85.5 / 133.4 ns |
-| `new DrawingRecipe(s, f, null, LayoutMetrics.unspecified())` 分配 | 96 B | 32 B（不再新建 64 B 的 `LayoutMetrics`）|
+| `new DrawingRecipe(s, f, null, LayoutMetrics.unspecified())` 分配 | 96 B | 32 B（r1 共享常量时的测量，**r3 已撤回，现回到 96 B**）|
 | `FillSpec.solid(c)` 分配 | 80 B | 56 B（少两个空数组克隆）|
-| `DrawingRecipe.of(s, f)` 分配 | —（新 API） | 32 B，与手写构造器相同 |
+| `DrawingRecipe.of(s, f)` 分配 | —（新 API） | 32 B（私有默认常量；手写四参构造器若走 `unspecified()` 为 96 B）|
 
 如实解读：`HashMap.get` 的剩余成本主要是相等键之间的深度 `equals`（hash 缓存只省掉查找键的 hash 计算），
 改后进程间离散较大（59.5–102.6 ns），只能说中位数下降约 20%；`hash` 字段放进了对象对齐填充，

@@ -33,7 +33,10 @@ MeguvizDrawable is an Android drawable library under development. Its packages
 use the `io.github.jichuo1.meguviz.drawable` family namespace. The core is a
 standalone Java module; the Android module uses the core without requiring
 MeguvizAndroid, MeguvizUI, MeguvizRef, or Lumen. The current API is provisional
-and no artifact has been published.
+`1.0.0` core/android are published to Maven Central and immutable. The current development
+version is `1.2.0` (unpublished on Central); a local, unsigned `meguviz-bom:1.2.0` candidate is
+available from `../meguviz-joint/local-maven` for cross-library integration only. See
+`docs/engineering/RELEASE.md`.
 
 With JDK 17, run `./gradlew check` (Windows: `gradlew.bat check`) for the host
 profile. To include the Android module use

@@ -1,8 +1,9 @@
 # FlightCache：共享、有界、单飞的结果缓存
 
-`io.github.jichuo1.meguviz.drawable.cache.FlightCache`（`meguviz-drawable-core` 1.1.0，未发布）把“很贵、纯、可被多个所有者共享”的结果——
+`io.github.jichuo1.meguviz.drawable.cache.FlightCache`（`meguviz-drawable-core` 1.2.0，Central 上尚未发布）把“很贵、纯、可被多个所有者共享”的结果——
 例如背景 tile——的生产放到工作线程，并保证：绘制路径只读内存，同一个键同时只生产一次，没人要的结果不会被送到不该收的所有者，所有数量都有上限。
-Android 侧配套 `MainThreadPoster`（主线程投递）与 `BitmapWeigher`（按分配字节计重），在 `meguviz-drawable-android` 1.1.0。
+Android 侧配套 `MainThreadPoster`（主线程投递）与 `BitmapWeigher`（按分配字节计重），在 `meguviz-drawable-android` 1.2.0。
+`1.1.0` 从未发布、已被 1.2.0 取代；`docs/abi/1.1.0` 只是历史候选快照。
 
 ## 契约
 
@@ -16,7 +17,9 @@ Android 侧配套 `MainThreadPoster`（主线程投递）与 `BitmapWeigher`（�
 | 失败 | 生产者抛出（或返回 null）则所有等待者收到 `onFailed`，不缓存，下次请求重新生产 |
 | 不回收值 | 淘汰时不 `recycle`，被淘汰的值可能仍在屏幕上；用 `EvictionListener` 释放所有者确认空闲的资源 |
 | 精确同步导出 | `computeNow(key, producer)` 在调用线程生产并缓存，从不等待线程池（不会被排在后面的任务卡死）；已排队的同键飞行用这个值直接完成 |
-| 可观测 | `stats()`：命中、未命中、合并、生产、失败、淘汰、拒绝、放弃、取消、投递、代际丢弃；`version()` 每发布一个值加一 |
+| 可观测 | `stats()`：命中、未命中、合并、生产、失败、淘汰、拒绝、放弃、取消、投递、代际丢弃；`version()` 每成功缓存一个新值加一（超重值与被并发抢占的值不算） |
+| 超重值 | 单个值权重超过 `maxWeight` 时仍交付给调用者与订阅者，但**不进缓存**、不通知淘汰、不计 `produced`、不加 `version()`；否则它会立刻被淘汰，监听者会在值上屏前收到一次虚假的回收通知 |
+| 重复发布 | 一个 RUNNING 飞行被 `computeNow` 抢先写入同键后，飞行完成时加入已缓存的那个引用：不 REPLACED、不二次加 `version()`、不给订阅者不同引用 |
 
 生产者必须纯且线程安全，值发布后不可变。`close()` 清空缓存、让排队的任务永不运行、让运行中的生产者在 `Cancellation` 检查处看到取消。
 
@@ -50,7 +53,7 @@ for ((k, t) in tickets) if (k !in wanted) t.cancel()
 ```
 
 - “软件 Canvas 同步渲染”的入口不要用 `peek` 兜底后在绘制线程 `render`：需要精确图像的导出路径用 `computeNow`，交互绘制的软件路径取就绪内容或降级底色并提交异步任务。
-- 每个 tile 就绪都会让 `version()` 加一，可作为玻璃采样的“内容版本”，避免部分 tile 就绪后继续用旧底图。
+- 每个 tile **成功进入缓存**都会让 `version()` 加一，可作为「缓存内容是否变化」的信号；被抢占的重复发布与超重值不会加一。若业务关心的是「有无新值交付」（含超重值），必须用 `Subscriber.onReady` 计数或回调，不能只轮询 `version()`，否则会漏刷新。
 - 一个 Scene 的 detach 只 `cancel` 自己的 `Ticket`，不影响其他 Scene 仍在等的飞行。
 
 ## 通用异步准备示例（无宿主身份）
@@ -110,14 +113,15 @@ when (ticket.status()) {
 
 ## 获取方式
 
-1.1.0 尚未发布到 Central。在本仓库：
+1.2.0 尚未发布到 Central。在本仓库：
 
 ```text
 gradlew -Pmeguviz.profile=android :core:publishCandidatePublicationToStagingRepository :android:publishCandidatePublicationToStagingRepository
 ```
 
-产物写到 `build/staging-maven`（`io/github/jichuo1/meguviz/meguviz-drawable-core/1.1.0` 与 `-android/1.1.0`）。BIL 的 release 构建要依赖发布到 Central 的版本，
-所以合并使用它的改动之前需要先发布 1.1.0（见 [RELEASE.md](RELEASE.md)）；发布由仓库所有者决定。
+产物写到 `build/staging-maven`（`io/github/jichuo1/meguviz/meguviz-drawable-core/1.2.0` 与 `-android/1.2.0`）。跨库联调由家族本地
+`meguviz-bom:1.2.0` 对齐（`/Volumes/DevEnvironment/meguviz-joint/local-maven`，未签名、未发布）。BIL 的 release 构建要依赖发布到 Central 的版本，
+所以合并使用它的改动之前需要先发布 1.2.0（见 [RELEASE.md](RELEASE.md)）；发布由仓库所有者决定。
 
 ## 验证
 

@@ -4,7 +4,10 @@
 （`meguviz-drawable-core`、`meguviz-drawable-android`）不依赖其中任何一个，也不依赖它们的上游。
 
 原则：不复制上游内部对象图，只使用上游已发布制品的公开 API；上游的行为以真实制品在设备上的观测为准，
-不以注释或文档推断。下表中的版本和 SHA-256 取自本机 Gradle 缓存里实际解析到的字节。
+不以注释或文档推断。**版本统一为 1.2.0**，由本地 `meguviz-bom:1.2.0` 对齐；各候选的精确 SHA-256
+以 `/Volumes/DevEnvironment/meguviz-joint/local-maven/checksums.sha256` 为准
+（`python3 /Volumes/DevEnvironment/meguviz-joint/tools/publish_local_bom.py --check` 可复核；脚本在**家族联合仓库**，不是本仓库 `tools/`）。
+候选重发后字节会变，**不要把任何具体 SHA 写进文档当作不可变事实**；Central 上已发布的 1.0.0 不在此列。
 
 ## 制品一览
 
@@ -24,13 +27,17 @@ Lumen 不进 Central 包：`lumen-engine` 只发布在 JitPack，Central 上的�
 
 上游字节：
 
-| 制品 | SHA-256 |
-|---|---|
-| `lumen-engine-1.5.5.aar` | `07480e39d154f731b1dd0daa394a4e69a33ccc499c5b254791f650db146cf8c0` |
-| `meguviz-android-runtime-1.2.0.aar` | `a37b19835a6f459145b878a7936ebf46f13aafc99e45442980a6d59192cfab3c`（本地候选） |
-| `meguviz-ui-core-1.2.0.aar` | `bbce257fa8f3faac901fa3f733335f334761f6728674aff48fc272ef1a296d86`（本地候选） |
+| 制品 | 版本 | 校验来源 |
+|---|---|---|
+| `lumen-engine` | 1.5.5（JitPack，已发布） | JitPack 制品自身 |
+| `meguviz-android-runtime` / `meguviz-android-window` / `meguviz-android-lifecycle` | 1.2.0（本地候选） | `local-maven/checksums.sha256` |
+| `meguviz-ui-core` / `meguviz-ui-widgets` | 1.2.0（本地候选） | `local-maven/checksums.sha256` |
+| `meguviz-drawable-core` | 1.2.0（本地候选） | `local-maven/checksums.sha256` |
+| `meguviz-bom` | 1.2.0（本地生成，platform） | `local-maven/checksums.sha256` |
 
-`meguviz-android-runtime` 与 `meguviz-ui-core` 的 1.2.0 尚未发布，上表是本地候选的字节；发布后须与 Central 上的字节重新核对。
+上述 1.2.0 全部由本地 BOM 对齐，均未发布到 Maven Central。候选每次重发字节都会变化，精确 SHA-256 只以
+`checksums.sha256` 为准；发布到 Central 后须与 Central 字节重新核对。`meguviz-ref-core:1.2.0` 与
+`meguviz-drawable-android:1.2.0` 本地仍无候选字节，依赖它们的桥与 fixture 还不能解析。
 
 ## Compose（MD-043）
 

@@ -30,8 +30,8 @@ view.setBackground(new RecipeDrawable(card, view.getResources().getDisplayMetric
 ```
 
 Kotlin 里写法相同（`DrawingRecipe.of(...).withStroke(...)`）；这些都是普通静态/实例方法，没有额外的包装对象：
-`of` 只分配返回的那个 recipe（`LayoutMetrics.unspecified()` 返回共享常量），`withStroke`/`withMetrics` 各分配一个新 recipe，
-与手写四参构造器完全相同（宿主 JVM 分配探针，见 [性能指南](PERFORMANCE_GUIDE.md) 2026-11-08 节）。
+`of` 只分配返回的那个 recipe（默认 metrics 是类内私有常量；公开的 `LayoutMetrics.unspecified()` 每次返回新实例，只保证值等价），`withStroke`/`withMetrics` 各分配一个新 recipe，
+`of()` 只分配一个 recipe；手写四参构造器若显式调用 `LayoutMetrics.unspecified()` 会多分配一个 metrics（r3 恢复 1.0.0 的实例语义后为 96 B），两者只在**值**上等价、分配量不同（宿主 JVM 分配探针，见 [性能指南](PERFORMANCE_GUIDE.md) 2026-11-08 节）。
 
 ## 配方（recipe）
 
@@ -84,7 +84,7 @@ FlightCache.<String, Bitmap>builder(workers, new MainThreadPoster())
 | 设置了 tint 或 `setColorFilter` 后 `getConstantState()` 为 null | 有意保守：任意滤镜与 tint 无法安全重建 |
 | `FlightCache.request` 返回 `READY` 却一直没收到 `onReady` | 命中路径不回调，见上文 |
 | 有 elevation 的 View 没有阴影 / `clipToOutline` 无效 | `getOutline` 当前有意返回空轮廓（alpha 0），见 [联合审计](AUDIT_JOINT_R1.md) D-05 |
-| 单个值的权重大于 `maxWeight` | 会入缓存后立即以 `CAPACITY` 淘汰，且淘汰监听在交付之前被调用；不要在监听里回收“看起来不在屏幕上”的值，见审计 D-02 |
+| 单个值的权重大于 `maxWeight` | r3 起**不进缓存**：值仍交付给订阅者与 `computeNow` 调用者，但不发 `CAPACITY` 淘汰、不计 `produced`、不加 `version()`；`peek` 仍为 null。需要观察每次交付请用 `onReady`，不要靠 `version()` 轮询 |
 
 ## 下一步
 
