@@ -19,6 +19,8 @@ final class CoreAdditionalContractTest {
 
     static int run() {
         recipeSnapshots();
+        conveniencesAndCachedHashes();
+        quickStartSampleRuns();
         if (stress()) {
             invalidInputs();
             parameterSlots();
@@ -31,6 +33,47 @@ final class CoreAdditionalContractTest {
     /** Opt-in binding coverage; the default run keeps the model and slot contracts. */
     private static boolean stress() {
         return Boolean.getBoolean("meguviz.test.stress");
+    }
+
+    /**
+     * The convenience factories are spelled-out constructor calls, and the cached hashes are the
+     * values a fresh computation gives: equal recipes built either way stay equal, hash alike in
+     * every order of first use, and never alias a mutated input.
+     */
+    private static void conveniencesAndCachedHashes() {
+        ShapeSpec shape = ShapeSpec.roundRect(Length.dp(12));
+        StateColorList rules = new StateColorList(
+                Arrays.asList(new StateSpec(0x010100a7), new StateSpec()), new int[] {0xff112233, 0xff445566});
+        FillSpec fill = FillSpec.statefulSolid(rules, 0xff000000);
+        StrokeSpec stroke = new StrokeSpec(Length.dp(1), 0x33000000);
+        DrawingRecipe spelled = new DrawingRecipe(shape, fill, stroke, LayoutMetrics.unspecified());
+        DrawingRecipe sugared = DrawingRecipe.of(shape, fill).withStroke(stroke);
+        int coldHash = new DrawingRecipe(ShapeSpec.roundRect(Length.dp(12)), FillSpec.statefulSolid(
+                new StateColorList(Arrays.asList(new StateSpec(0x010100a7), new StateSpec()),
+                        new int[] {0xff112233, 0xff445566}), 0xff000000),
+                new StrokeSpec(Length.dp(1), 0x33000000), LayoutMetrics.unspecified()).hashCode();
+        int first = spelled.hashCode();
+        check(sugared.equals(spelled) && spelled.equals(sugared) && first == coldHash
+                && spelled.hashCode() == first && sugared.hashCode() == first
+                && DrawingRecipe.of(shape, fill).stroke() == null
+                && !sugared.withStroke(null).equals(sugared) && sugared.withStroke(null).equals(DrawingRecipe.of(shape, fill))
+                && sugared.withMetrics(LayoutMetrics.unspecified()).equals(sugared)
+                && !sugared.withMetrics(new LayoutMetrics(4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)).equals(sugared)
+                && LayoutMetrics.unspecified() == LayoutMetrics.unspecified()
+                && FillSpec.solid(1).equals(FillSpec.solid(1)) && FillSpec.solid(1).hashCode() == FillSpec.solid(1).hashCode()
+                && FillSpec.solid(1).colors().length == 0 && FillSpec.solid(1).colors() != FillSpec.solid(1).colors()
+                && !FillSpec.solid(1).equals(FillSpec.solid(2))
+                && new StateSpec(5, -6).hashCode() == Arrays.hashCode(new int[] {5, -6}),
+                "convenience factories equal spelled-out recipes and cached hashes equal fresh ones");
+    }
+
+    /** The guide's code is this sample; running it keeps the documented results true. */
+    private static void quickStartSampleRuns() {
+        DrawingRecipe button = io.github.jichuo1.meguviz.drawable.samples.QuickStartSample.button();
+        check(io.github.jichuo1.meguviz.drawable.samples.QuickStartSample.colorFor(button, new int[] {0x010100a7}) == 0xFF1E4FD8
+                && io.github.jichuo1.meguviz.drawable.samples.QuickStartSample.colorFor(button, new int[0]) == 0xFF3366FF
+                && "tile-0:rendered".equals(io.github.jichuo1.meguviz.drawable.samples.QuickStartSample.tileOnce()),
+                "quick-start sample produces the documented results");
     }
 
     private static void recipeSnapshots() {

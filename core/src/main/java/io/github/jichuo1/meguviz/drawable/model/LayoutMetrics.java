@@ -24,7 +24,9 @@ public final class LayoutMetrics {
         this.opticalInsetLeft = opticalInsetLeft; this.opticalInsetTop = opticalInsetTop;
         this.opticalInsetRight = opticalInsetRight; this.opticalInsetBottom = opticalInsetBottom;
     }
-    public static LayoutMetrics unspecified() { return new LayoutMetrics(-1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); }
+    private static final LayoutMetrics UNSPECIFIED = new LayoutMetrics(-1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    /** Unspecified intrinsic size, no minimum, padding or insets. Immutable, so one shared instance is returned. */
+    public static LayoutMetrics unspecified() { return UNSPECIFIED; }
     public int intrinsicWidth() { return intrinsicWidth; }
     public int intrinsicHeight() { return intrinsicHeight; }
     public int minimumWidth() { return minimumWidth; }

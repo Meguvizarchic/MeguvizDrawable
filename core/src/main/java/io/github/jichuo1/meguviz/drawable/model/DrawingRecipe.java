@@ -16,6 +16,22 @@ public final class DrawingRecipe {
         this.stroke = stroke;
         this.metrics = metrics;
     }
+    /**
+     * Shape and fill only: no stroke and {@link LayoutMetrics#unspecified() unspecified} metrics.
+     * Equal to {@code new DrawingRecipe(shape, fill, null, LayoutMetrics.unspecified())} and
+     * allocates nothing beyond the returned recipe.
+     */
+    public static DrawingRecipe of(ShapeSpec shape, FillSpec fill) {
+        return new DrawingRecipe(shape, fill, null, LayoutMetrics.unspecified());
+    }
+    /** A recipe equal to this one with {@code stroke} (null removes the stroke). This recipe is unchanged. */
+    public DrawingRecipe withStroke(StrokeSpec stroke) {
+        return new DrawingRecipe(shape, fill, stroke, metrics);
+    }
+    /** A recipe equal to this one with {@code metrics}. This recipe is unchanged. */
+    public DrawingRecipe withMetrics(LayoutMetrics metrics) {
+        return new DrawingRecipe(shape, fill, stroke, metrics);
+    }
     public ShapeSpec shape() { return shape; }
     public FillSpec fill() { return fill; }
     /** Returns null when there is no stroke. */
