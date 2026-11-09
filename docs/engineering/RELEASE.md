@@ -5,16 +5,16 @@
 | 制品 | 版本 | 状态 |
 |---|---|---|
 | `meguviz-drawable-core` | 1.0.0 | **已在 Central**（2026-10-28），字节 `6115921e…`，不含 `BindingScope.claim` |
-| `meguviz-drawable-android` | 1.0.0 | **已在 Central**，字节与本仓库当前构建逐字节一致（`e9a74e01…`） |
+| `meguviz-drawable-android` | 1.0.0 | **已在 Central**，字节 `e9a74e01…`（与发布当时的仓库构建一致；仓库当前的 android 已新增 API，字节不再相同） |
 | `meguviz-drawable-core` | 1.2.0 | 未发布；仓库当前的 core，比 1.0.0 多 `BindingScope.claim`、`FlightCache` 与 `StateMatcherCache`，没有删除或改签名（1.1.0 从未发布，已被取代） |
 | `meguviz-drawable-android` | 1.2.0 | 未发布；比 1.0.0 多 `MainThreadPoster`、`BitmapWeigher`，没有删除或改签名（1.1.0 从未发布，已被取代） |
 | `-compose` | 1.2.0 | 待发布（1.0.0、1.1.0 均未发布，已被取代） |
 | `-meguviz-ui` | 1.2.0 | 待发布；含 `reclaim()` 与密度变化重建修复；依赖 `meguviz-ui-core` 1.2.0，须等它先上 Central |
 | `-meguviz-android` | 1.2.0 | 待发布；依赖 `meguviz-android-runtime` 1.2.0，须等它先上 Central |
-| `-lumen` | 1.2.0 | 不进 Central：依赖只发布在 JitPack 的 `lumen-engine` |
+| `-lumen` | 1.2.0 | 暂不进 Central：Central 上的 Lumen 只有 `io.github.jichuo1:lumen-engine:1.6.1`，其 AAR 元数据要求 compileSdk 37.2（本桥用 37.0 编译会失败），修复在未发布的 Lumen 1.6.2 |
 
 Central 的发布不可替换、不可撤销。各模块独立定版，版本取自它自己的 `build.gradle.kts`：已发布的版本号不再改字节，
-有变化就升版本（core 与 android 新增 API，按语义化版本升级，当前为 1.2.0）。`meguviz-drawable-lumen` 依赖 `claim`，因此显式依赖 core，待 Lumen 上 Central 且 core 1.2.0 发布后再纳入。
+有变化就升版本（core 与 android 新增 API，按语义化版本升级，当前为 1.2.0）。`meguviz-drawable-lumen` 依赖 `claim`，因此显式依赖 core，待 Lumen 1.6.2（不再要求 compileSdk 37.2）上 Central 且 core 1.2.0 发布后再纳入。
 
 ## 生成上传包
 

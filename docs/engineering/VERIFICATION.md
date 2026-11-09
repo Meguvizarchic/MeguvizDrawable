@@ -196,7 +196,7 @@ dev.3 core JAR SHA-256 `51b17b45e0397b5b322b1382bb73e42bb7e7a91199e538eb79e31031
 - 独立核心与可选桥边界不变：core 无 Android/兄弟库依赖，桥仍需显式选档；这些主机结果不代表
   真机像素、ART 性能或 R8 后设备行为通过。
 
-## 联合改进第一轮，2026-11-08（分支 `perf/joint-r1`，未推送）
+## 联合改进第一轮，2026-11-08（分支 `perf/joint-r1`；写作时未推送，其提交现已包含在 `main` 中）
 
 - 基线：`git archive b087b3f` 的干净副本上 `-Pmeguviz.profile=android check` 通过（默认 148 项）。新克隆因 `gradlew`
   缺可执行位失败（已修 `d6e2335`）。审计与全部发现见 [AUDIT_JOINT_R1.md](AUDIT_JOINT_R1.md)。

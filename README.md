@@ -32,7 +32,7 @@
 MeguvizDrawable is an Android drawable library under development. Its packages
 use the `io.github.jichuo1.meguviz.drawable` family namespace. The core is a
 standalone Java module; the Android module uses the core without requiring
-MeguvizAndroid, MeguvizUI, MeguvizRef, or Lumen. The current API is provisional
+MeguvizAndroid, MeguvizUI, MeguvizRef, or Lumen. The current API is provisional.
 `1.0.0` core/android are published to Maven Central and immutable. The current development
 version is `1.2.0` (unpublished on Central). A local, unsigned `meguviz-bom:1.2.0` candidate
 exists only in the maintainer's cross-library workspace (it is not part of this repository), for
@@ -41,8 +41,10 @@ cross-library integration only. See `docs/engineering/RELEASE.md`.
 With JDK 17, run `./gradlew check` (Windows: `gradlew.bat check`) for the host
 profile. To include the Android module use
 `./gradlew -Pmeguviz.profile=android check` with an Android SDK installed.
-Android, device, BIL integration, ABI and
-performance gates are tracked separately and have not passed yet. The latest
+Android, device, BIL integration and
+performance gates are tracked separately and have not passed yet. CI only checks, with
+`tools/check_abi_superset.py`, that the public Java signatures of the published `1.0.0` are still present
+(see [docs/abi](docs/abi/README.md)); that says nothing about behavior. The latest
 feature changes are pending the planned consolidated verification.
 
 The current Android implementation accepts an immutable `DrawingRecipe` and a
@@ -69,7 +71,8 @@ the same Canvas backend), MeguvizAndroid (lifecycle, resource and frame authorit
 background property) and Lumen (surface bindings under drawable-scope ownership). They are built with
 `-Pmeguviz.profile=bridges`. Their upstream versions, the behavior observed on the real artifacts and the
 limits are in [bridges](docs/engineering/BRIDGES.md); the Lumen bridge is not in the Maven Central bundle because
-`lumen-engine` is not on Central.
+it needs a Lumen release that is not on Central yet: Central has only `io.github.jichuo1:lumen-engine:1.6.1`, whose
+AAR metadata requires compileSdk 37.2, and the fix (Lumen source `1.6.2`) is unpublished.
 
 See [engineering status](docs/engineering/STATUS.md) and
 [baseline](docs/engineering/BASELINE.md) for current progress and limits;

@@ -21,8 +21,10 @@ Compose、MeguvizAndroid、MeguvizUI 三个桥只依赖已发布的 `meguviz-dra
 其中 MeguvizAndroid 桥另依赖 `meguviz-android-runtime` 1.2.0、MeguvizUI 桥另依赖 `meguviz-ui-core` 1.2.0，它们上 Central 之前对应的桥既不能在默认仓库下解析，也不能发布；
 上传前用 `-Pmeguviz.againstPublished=true` 针对已发布字节再构建并测试一次。
 
-Lumen 不进 Central 包：`lumen-engine` 只发布在 JitPack，Central 上的制品不应依赖 Central 用户无法解析的坐标
-（MeguvizUI 对它自己的 Lumen 桥采取同样的做法）。该桥仍可从本地 staging 仓库构建和使用，待 Lumen 上 Central 后再纳入。
+Lumen 桥暂不进 Central 包：它用的是 JitPack 上的 `lumen-engine` 1.5.5，Central 上的制品不应依赖 Central 用户无法解析的坐标
+（MeguvizUI 对它自己的 Lumen 桥采取同样的做法）。Lumen 自 2026-10-30 起也在 Central 发布（`io.github.jichuo1:lumen-engine`，目前只有 1.6.1），
+但 1.6.1 的 AAR 元数据要求消费者用 compileSdk 37.2 编译，本桥用 37.0，换成它会在 `checkAarMetadata` 失败；修复在未发布的 Lumen 1.6.2。
+该桥仍可从本地 staging 仓库构建和使用，待 Lumen 1.6.2 上 Central 后再纳入。
 
 上游字节：
 
