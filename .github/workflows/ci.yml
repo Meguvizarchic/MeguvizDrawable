@@ -25,7 +25,14 @@ jobs:
       - name: JVM contracts
         run: bash gradlew --no-daemon check
       - name: ABI tool contracts
-        run: python3 tools/test_dump_abi.py
+        run: python3 tools/test_dump_abi.py && python3 tools/test_check_abi_superset.py
+      - name: Public core ABI still contains the released 1.0.0 API
+        run: >-
+          bash gradlew --no-daemon :core:jar
+          && mkdir -p build/abi-now
+          && python3 tools/dump_abi.py "$(ls core/build/libs/core-*.jar | grep -Ev -- '-(sources|javadoc)\.jar$')"
+          --output build/abi-now/core-api.txt --metadata build/abi-now/core-api.json
+          && python3 tools/check_abi_superset.py docs/abi/1.0.0/core-api.txt build/abi-now/core-api.txt
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -49,6 +56,12 @@ jobs:
           :android:publishCandidatePublicationToStagingRepository
       - name: Verify bundled licenses
         run: python3 tools/verify_candidate_licenses.py
+      - name: Public Android ABI still contains the released 1.0.0 API
+        run: >-
+          mkdir -p build/abi-now
+          && python3 tools/dump_abi.py "$(ls build/staging-maven/io/github/jichuo1/meguviz/meguviz-drawable-android/*/meguviz-drawable-android-*.aar)"
+          --output build/abi-now/android-api.txt --metadata build/abi-now/android-api.json
+          && python3 tools/check_abi_superset.py docs/abi/1.0.0/android-api.txt build/abi-now/android-api.txt
       - name: Build isolated release consumer with R8
         run: bash gradlew -p fixtures/consumer --no-daemon :app:assembleRelease :app:verifyCandidateResolution
       - name: Check Maven POM resolution

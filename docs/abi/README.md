@@ -41,3 +41,12 @@ exhaustive compatibility guarantee.
 adds `DrawingRecipe.of`, `withStroke` and `withMetrics`; nothing was removed or changed. `LegacyCoreClient`
 compiled against the Central 1.0.0 jar ran unchanged on this jar (PASS). The android API is unchanged in this
 round and was not re-dumped (its staging publish needs Dokka, unavailable offline).
+
+## Published-release check
+
+`tools/check_abi_superset.py <published dump> <fresh dump>` fails when a fresh build lost a class, a
+public/protected member, a supertype, or became `final`/`abstract` compared with a published release's
+dump (`1.0.0/*-api.txt` are taken from the artifacts on Maven Central). CI runs it for core and the
+Android library after dumping the freshly built artifacts, so the baselines are no longer only
+snapshots that somebody has to diff by hand. Reviewed removals go in a file passed with `--allowed`,
+one `<class> :: <member line>` per line. It checks the Java-level ABI only, not behaviour.
