@@ -119,8 +119,8 @@ when (ticket.status()) {
 gradlew -Pmeguviz.profile=android :core:publishCandidatePublicationToStagingRepository :android:publishCandidatePublicationToStagingRepository
 ```
 
-产物写到 `build/staging-maven`（`io/github/jichuo1/meguviz/meguviz-drawable-core/1.2.0` 与 `-android/1.2.0`）。跨库联调由家族本地
-`meguviz-bom:1.2.0` 对齐（位于维护者联合工作区的本地 file 仓库，不在任何公开仓库里，未签名、未发布）。BIL 的 release 构建要依赖发布到 Central 的版本，
+产物写到 `build/staging-maven`（`io/github/jichuo1/meguviz/meguviz-drawable-core/1.2.0` 与 `-android/1.2.0`）。跨库联调由家族 BOM
+`meguviz-bom:1.2.0` 对齐（公开仓库 MeguvizBom，尚未发布到 Central）。BIL 的 release 构建要依赖发布到 Central 的版本，
 所以合并使用它的改动之前需要先发布 1.2.0（见 [RELEASE.md](RELEASE.md)）；发布由仓库所有者决定。
 
 ## 验证

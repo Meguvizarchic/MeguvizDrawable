@@ -11,7 +11,7 @@
 |---|---|
 | 新克隆执行 `./gradlew …` | 失败，退出 126：`gradlew` 在 git 中是 100644（D-09，已修 `d6e2335`） |
 | `bash ./gradlew -Pmeguviz.profile=android check`（`git archive b087b3f` 的干净副本） | 通过；`CoreContractTest` 默认 148 项，Android 编译与 lint 通过 |
-| `-Pmeguviz.profile=bridges` | 未运行：`meguviz-android-runtime:1.2.0` 与 `meguviz-ui-core:1.2.0` 不在 Central/本地缓存（`c44099d` 已记录同一限制）；当时联合工作区的本地 file 仓库尚无兄弟库候选 |
+| `-Pmeguviz.profile=bridges` | 未运行：`meguviz-android-runtime:1.2.0` 与 `meguviz-ui-core:1.2.0` 不在 Central/本地缓存（`c44099d` 已记录同一限制）；当时本地还没有兄弟库的候选制品 |
 | `:android:publishCandidatePublicationToStagingRepository`（离线） | 失败：android 的 javadoc 生成需要 `org.jetbrains.dokka:dokka-core:2.2.0`，离线缓存中没有（D-10）。core 的 staging 发布正常 |
 
 文档写的是 JDK 17；本机 `JAVA_HOME` 是 21.0.12.1，core 以 `--release 8` 编译，未发现差异，但 `dump_abi.py` 的

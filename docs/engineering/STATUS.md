@@ -2,7 +2,7 @@
 
 更新时间：2026-11-09（发布状态以本段和 RELEASE.md 为准；下表与设备验证段是 2026-10-28 的快照）。
 
-当前阶段：核心与 Android 基线功能验证和性能试验进行中。`meguviz-drawable-core` / `-android` 的 1.0.0 已发布到 Maven Central 且不可变；1.1.0 从未发布、已被取代；当前 1.2.0 尚未发布到 Central，只以本地未签名候选（维护者联合工作区里的 `meguviz-bom:1.2.0`，不在任何公开仓库里）供跨库联调。详见 RELEASE.md。
+当前阶段：核心与 Android 基线功能验证和性能试验进行中。`meguviz-drawable-core` / `-android` 的 1.0.0 已发布到 Maven Central 且不可变；1.1.0 从未发布、已被取代；当前 1.2.0 尚未发布到 Central，跨库联调用家族 BOM `meguviz-bom:1.2.0`（源码在公开仓库 MeguvizBom，同样尚未发布到 Central）。详见 RELEASE.md。
 
 | 门禁 | 状态 | 主要缺口 |
 |---|---|---|

@@ -4,8 +4,8 @@
 （`meguviz-drawable-core`、`meguviz-drawable-android`）不依赖其中任何一个，也不依赖它们的上游。
 
 原则：不复制上游内部对象图，只使用上游已发布制品的公开 API；上游的行为以真实制品在设备上的观测为准，
-不以注释或文档推断。**版本统一为 1.2.0**，由本地 `meguviz-bom:1.2.0` 对齐；各候选的精确 SHA-256
-以维护者联合工作区里本地 file 仓库中的 `checksums.sha256` 为准（该仓库及其生成脚本不在本仓库内，也不在任何公开仓库里）。
+不以注释或文档推断。**版本统一为 1.2.0**，由家族 BOM `meguviz-bom:1.2.0`（公开仓库 MeguvizBom，尚未发布到 Central）对齐；上游候选的精确 SHA-256
+随各库的本地构建而变，不记录在本仓库。
 候选重发后字节会变，**不要把任何具体 SHA 写进文档当作不可变事实**；Central 上已发布的 1.0.0 不在此列。
 
 ## 制品一览
@@ -31,10 +31,10 @@ Lumen 桥暂不进 Central 包：它用的是 JitPack 上的 `lumen-engine` 1.5.
 | 制品 | 版本 | 校验来源 |
 |---|---|---|
 | `lumen-engine` | 1.5.5（JitPack，已发布） | JitPack 制品自身 |
-| `meguviz-android-runtime` / `meguviz-android-window` / `meguviz-android-lifecycle` | 1.2.0（本地候选） | `local-maven/checksums.sha256` |
-| `meguviz-ui-core` / `meguviz-ui-widgets` | 1.2.0（本地候选） | `local-maven/checksums.sha256` |
-| `meguviz-drawable-core` | 1.2.0（本地候选） | `local-maven/checksums.sha256` |
-| `meguviz-bom` | 1.2.0（本地生成，platform） | `local-maven/checksums.sha256` |
+| `meguviz-android-runtime` / `meguviz-android-window` / `meguviz-android-lifecycle` | 1.2.0（本地候选） | MeguvizAndroid 的本地构建 |
+| `meguviz-ui-core` / `meguviz-ui-widgets` | 1.2.0（本地候选） | MeguvizUI 的本地构建 |
+| `meguviz-drawable-core` | 1.2.0（本地候选） | 本仓库的 `build/staging-maven` |
+| `meguviz-bom` | 1.2.0（MeguvizBom 本地构建，platform） | MeguvizBom 的 `./gradlew verifyBom` |
 
 上述 1.2.0 全部由本地 BOM 对齐，均未发布到 Maven Central。候选每次重发字节都会变化，精确 SHA-256 只以
 `checksums.sha256` 为准；发布到 Central 后须与 Central 字节重新核对。`meguviz-ref-core:1.2.0` 与
