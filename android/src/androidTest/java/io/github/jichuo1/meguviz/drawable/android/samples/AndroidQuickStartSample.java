@@ -27,7 +27,7 @@ public final class AndroidQuickStartSample {
     public static void applyBackground(View view) {
         DrawingRecipe card = DrawingRecipe.of(ShapeSpec.roundRect(Length.dp(16)), FillSpec.solid(0xFFFFFFFF))
                 .withStroke(new StrokeSpec(Length.dp(1), 0x1F000000));
-        view.setBackground(new RecipeDrawable(card, view.getResources().getDisplayMetrics().density));
+        view.setBackground(RecipeDrawable.forView(view, card));
     }
 
     /** A process-wide tile cache: bounded by bytes, produced off the main thread, delivered on it. */

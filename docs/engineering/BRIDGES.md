@@ -59,6 +59,12 @@ Lumen 桥暂不进 Central 包：它用的是 JitPack 上的 `lumen-engine` 1.5.
 
 `MeguvizBinding` 把一个 `BindingScope` 接到三个上游权威，不新增线程、Handler 或帧回调。
 
+只在所有者线程提交、也没有 provider 注册表的宿主可以用两参形式（未发布）：`MeguvizBinding.create(lifecycle, resources)`，
+它就是 `create(lifecycle, resources, null, registry, 0)` 配一个修订号恒为 0 的注册表。没有邮箱，所以 `post` 仍被拒绝；
+attach、rebind、资源与主题失效照常使请求过期，因为它们来自传入的 `lifecycle` 与 `resources`。手上是 MeguvizAndroid 的
+`ViewScope` 时写作 `MeguvizBinding.create(scope.lifecycle(), scope.resources().state())`。宿主合同
+`MeguvizBindingTest.shortCreateIsTheFullFormWithNoMailboxAConstantRegistryAndEpochZero` 把两种写法并排跑同一组断言。
+
 | 上游 | 采用 | 对应 |
 |---|---|---|
 | `ResourceState.dependencies(ALL)` 的 `EpochDomain.stamp().epoch()` | 两个代次之和 | `BindingEnvironment.resourceRevision`（只增不减，任何失效都会改变它） |

@@ -12,7 +12,7 @@
 
 ## 1 分钟
 
-坐标（Central 上只有 1.0.0；本页用到的 `DrawingRecipe.of`/`withStroke`/`withMetrics` 与 `FlightCache` 属于未发布的 1.2.0，
+坐标（Central 上只有 1.0.0；本页用到的 `DrawingRecipe.of`/`withStroke`/`withMetrics`、`RecipeDrawable.forView` 与 `FlightCache` 属于未发布的 1.2.0，
 在仓库里用 `-Pmeguviz.profile=android :core:publishCandidatePublicationToStagingRepository` 产出到 `build/staging-maven`）：
 
 ```kotlin
@@ -26,8 +26,12 @@ dependencies {
 ```java
 DrawingRecipe card = DrawingRecipe.of(ShapeSpec.roundRect(Length.dp(16)), FillSpec.solid(0xFFFFFFFF))
         .withStroke(new StrokeSpec(Length.dp(1), 0x1F000000));
-view.setBackground(new RecipeDrawable(card, view.getResources().getDisplayMetrics().density));
+view.setBackground(RecipeDrawable.forView(view, card));
 ```
+
+`RecipeDrawable.forView(view, recipe)` 就是 `new RecipeDrawable(recipe, view.getResources().getDisplayMetrics().density)`：
+密度取自这个 View 自己的资源（不是 `Resources.getSystem()` 或 Application 的密度；View 所在的显示器或其 Context 覆盖的 Configuration 不同时，这几个值可以不一样），
+只在调用时读一次，不安装、不缓存任何东西；密度变化后仍需新建实例。消费已发布的 1.0.0 时没有这个方法，用构造器。
 
 Kotlin 里写法相同（`DrawingRecipe.of(...).withStroke(...)`）；这些都是普通静态/实例方法，没有额外的包装对象：
 `of` 只分配返回的那个 recipe（默认 metrics 是类内私有常量；公开的 `LayoutMetrics.unspecified()` 每次返回新实例，只保证值等价），`withStroke`/`withMetrics` 各分配一个新 recipe，
@@ -72,6 +76,7 @@ FlightCache.<String, Bitmap>builder(workers, new MainThreadPoster())
 | `new DrawingRecipe(shape, fill, null, LayoutMetrics.unspecified())` | `DrawingRecipe.of(shape, fill)` | 结果 `equals` 相同 |
 | `new DrawingRecipe(r.shape(), r.fill(), stroke, r.metrics())` | `r.withStroke(stroke)` | 原 recipe 不变 |
 | `new DrawingRecipe(r.shape(), r.fill(), r.stroke(), metrics)` | `r.withMetrics(metrics)` | 原 recipe 不变 |
+| `new RecipeDrawable(recipe, view.getResources().getDisplayMetrics().density)` | `RecipeDrawable.forView(view, recipe)` | 同一密度来源，逐像素相同（设备合同） |
 
 旧构造器保留，不弃用。
 

@@ -144,6 +144,23 @@ public final class MeguvizBinding implements AutoCloseable {
         }));
     }
 
+    /** The registry of a host without providers: its revision never changes. */
+    private static final RegistrySource NO_REGISTRY = new RegistrySource() {
+        @Override public long revision() { return 0L; }
+    };
+
+    /**
+     * The short form for a host that only commits on the owner thread and registers no providers:
+     * exactly {@code create(lifecycle, resources, null, registry, 0)} with a registry whose revision is
+     * always 0. There is no mailbox, so {@link #post} is refused; attach, rebind and resource changes
+     * still invalidate requests, because those come from {@code lifecycle} and {@code resources}.
+     * With a MeguvizAndroid {@code ViewScope} this is
+     * {@code MeguvizBinding.create(scope.lifecycle(), scope.resources().state())}.
+     */
+    public static MeguvizBinding create(LifecycleScope lifecycle, ResourceState resources) {
+        return create(lifecycle, resources, null, NO_REGISTRY, 0L);
+    }
+
     /**
      * @param mailbox optional; required only for {@link #post}. It must belong to {@code lifecycle}
      *        and be driven by the application's single frame scheduler.

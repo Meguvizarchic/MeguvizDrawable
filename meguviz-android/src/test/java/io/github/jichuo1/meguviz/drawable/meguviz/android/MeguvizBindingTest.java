@@ -437,4 +437,56 @@ public final class MeguvizBindingTest {
         assertNotNull(posting.admission());
         assertSame(null, posting.handle());
     }
+
+    @Test public void shortCreateIsTheFullFormWithNoMailboxAConstantRegistryAndEpochZero() {
+        LifecycleScope shortLifecycle = new LifecycleScope(dispatcher, error -> sinkError.set(error));
+        ResourceState shortResources = new ResourceState(dispatcher, "short", snapshot(320), 2);
+        LifecycleScope fullLifecycle = new LifecycleScope(dispatcher, error -> sinkError.set(error));
+        ResourceState fullResources = new ResourceState(dispatcher, "full", snapshot(320), 2);
+        MeguvizBinding shortForm = MeguvizBinding.create(shortLifecycle, shortResources);
+        MeguvizBinding fullForm = MeguvizBinding.create(fullLifecycle, fullResources, null, () -> 0L, 0);
+        MeguvizBinding[] both = {shortForm, fullForm};
+        LifecycleScope[] lifecycles = {shortLifecycle, fullLifecycle};
+        ResourceState[] states = {shortResources, fullResources};
+        for (int i = 0; i < both.length; i++) {
+            MeguvizBinding each = both[i];
+            assertEquals(BindingScope.State.SUSPENDED, each.scope().state());
+            lifecycles[i].setAttached(true);
+            lifecycles[i].setStarted(true);
+            assertTrue(each.isActive());
+            assertEquals(0, each.scope().ownerEpoch());
+            assertEquals(0, each.project().registryRevision());
+            assertEquals(2f, each.density(), 0f);
+            assertSame("an unchanged projection is still reused", each.project(), each.project());
+
+            MeguvizBinding.Request request = each.begin("background");
+            assertEquals(UpdateResult.COMMITTED, each.commit(request, res("first" + i), ACCEPT, RELEASE));
+            // Resources still invalidate: the lifecycle and resource authorities are the real ones.
+            MeguvizBinding.Request beforeTheme = each.begin("background");
+            states[i].invalidateTheme();
+            Res stale = res("stale" + i);
+            assertEquals(UpdateResult.STALE, each.commit(beforeTheme, stale, ACCEPT, RELEASE));
+            assertEquals(1, stale.released);
+            try {
+                each.post(each.begin("background"), res("posted" + i), ACCEPT, RELEASE, null);
+                fail("no mailbox");
+            } catch (IllegalStateException expected) {
+                assertEquals("created without a mailbox", expected.getMessage());
+            }
+        }
+        assertEquals(shortForm.project().resourceRevision(), fullForm.project().resourceRevision());
+        // Closing the lifecycle closes the bridge, as with the full form.
+        shortLifecycle.close();
+        fullLifecycle.close();
+        assertEquals(BindingScope.State.CLOSED, shortForm.scope().state());
+        assertEquals(fullForm.scope().state(), shortForm.scope().state());
+        shortResources.close();
+        fullResources.close();
+        try {
+            MeguvizBinding.create(null, shortResources);
+            fail("lifecycle is required");
+        } catch (NullPointerException expected) {
+            assertEquals("lifecycle", expected.getMessage());
+        }
+    }
 }

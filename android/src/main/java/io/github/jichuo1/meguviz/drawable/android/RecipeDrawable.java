@@ -15,6 +15,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
+import android.view.View;
 
 import io.github.jichuo1.meguviz.drawable.core.CornerRadii;
 import io.github.jichuo1.meguviz.drawable.core.StateMatcher;
@@ -66,6 +67,19 @@ public final class RecipeDrawable extends Drawable {
         fillPaint.setStyle(Paint.Style.FILL);
         strokePaint.setStyle(Paint.Style.STROKE);
         updateAppearance();
+    }
+
+    /**
+     * A drawable for {@code view}, at the density of the View's own resources: exactly
+     * {@code new RecipeDrawable(recipe, view.getResources().getDisplayMetrics().density)}.
+     *
+     * <p>The density is read once, here; as with the constructor, the instance does not follow a later
+     * density change. Nothing is installed or remembered: hand the result to
+     * {@code view.setBackground}, or to a slot from {@link ViewSlots}. Call it on the View's thread.</p>
+     */
+    public static RecipeDrawable forView(View view, DrawingRecipe recipe) {
+        if (view == null) throw new NullPointerException("view");
+        return new RecipeDrawable(recipe, view.getResources().getDisplayMetrics().density);
     }
 
     public DrawingRecipe recipe() { return recipe; }

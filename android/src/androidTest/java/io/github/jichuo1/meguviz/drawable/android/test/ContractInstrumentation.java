@@ -100,6 +100,7 @@ public final class ContractInstrumentation extends Instrumentation {
             asymmetricGeometryReference();
             statefulTintAndOwnership();
             boundsAndMetricsEdges();
+            forViewMatchesTheExplicitConstructor();
             if ("hardware".equals(mode)) {
                 hardwareCanvasReference();
                 result.putString("hardware_scenes", "gradient=6084; asymmetric_round_rect=6400; "
@@ -351,6 +352,35 @@ public final class ContractInstrumentation extends Instrumentation {
         check(bitmap(wide).getPixel(15, 15) == Color.RED, "valid bounds recover after rejected stroke");
     }
 
+    /** forView must be the explicit constructor at the View's own density: same pixels, same recipe. */
+    private void forViewMatchesTheExplicitConstructor() {
+        android.view.View view = new android.view.View(getTargetContext());
+        float density = view.getResources().getDisplayMetrics().density;
+        DrawingRecipe recipe = DrawingRecipe.of(ShapeSpec.roundRect(Length.dp(4)), FillSpec.solid(Color.RED))
+                .withStroke(new StrokeSpec(Length.dp(1), Color.BLUE));
+        RecipeDrawable shortForm = RecipeDrawable.forView(view, recipe);
+        RecipeDrawable explicit = new RecipeDrawable(recipe, density);
+        shortForm.setBounds(1, 2, 29, 28); explicit.setBounds(1, 2, 29, 28);
+        check(shortForm != explicit && shortForm.recipe() == recipe, "forView builds a new drawable over the given recipe");
+        check(equalPixels(bitmap(shortForm), bitmap(explicit)), "forView pixels equal the explicit constructor's");
+        // A dp recipe drawn at another density differs, so the comparison above does depend on density.
+        RecipeDrawable otherDensity = new RecipeDrawable(recipe, density * 2f);
+        otherDensity.setBounds(1, 2, 29, 28);
+        check(!equalPixels(bitmap(shortForm), bitmap(otherDensity)), "density is observable in this scene");
+        check(view.getBackground() == null, "forView installs nothing");
+        try {
+            RecipeDrawable.forView(null, recipe);
+            throw new AssertionError("null view accepted");
+        } catch (NullPointerException expected) {
+            check("view".equals(expected.getMessage()), "null view names the argument");
+        }
+        try {
+            RecipeDrawable.forView(view, null);
+            throw new AssertionError("null recipe accepted");
+        } catch (NullPointerException expected) {
+            check("recipe".equals(expected.getMessage()), "null recipe is refused by the constructor");
+        }
+    }
     private void constantStateAndOwnerIsolation() {
         int pressed = android.R.attr.state_pressed;
         StateColorList colors = new StateColorList(Arrays.asList(new StateSpec(pressed), new StateSpec()),

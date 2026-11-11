@@ -206,3 +206,20 @@ dev.3 core JAR SHA-256 `51b17b45e0397b5b322b1382bb73e42bb7e7a91199e538eb79e31031
 - ABI：`docs/abi/1.2.0/core-api.*` 相对 1.1.0 只有新增；`LegacyCoreClient`（针对 Central 1.0.0 编译）在新 jar 上 PASS。
 - 性能：模型 hash/分配与 `FlightCache` 命中路径的宿主测量见 [PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md) 2026-11-08 两节。
 - 未运行：任何设备/模拟器测试、`bridges` 档位（上游 1.2.0 制品不可得）、R8。
+
+## 一行调用的人因补充，2026-11-11（分支 `ergo/oneline-20261111`，未合并）
+
+- 新增 `RecipeDrawable.forView(view, recipe)`（android）与 `MeguvizBinding.create(lifecycle, resources)`（meguviz-android 桥），
+  都是对已有写法的纯委托，不改任何已有签名；说明见 [QUICKSTART.md](QUICKSTART.md) 与 [BRIDGES.md](BRIDGES.md)。
+- `-Pmeguviz.profile=android check :android:assembleDebugAndroidTest`（JDK 17.0.20.1，`--offline`）通过：核心默认合同 147 项，
+  Android 编译与 lint 通过。`-Pmeguviz.profile=bridges :meguviz-android:check` 通过（上游 `meguviz-android-runtime:1.2.0`
+  取自本机 `mavenLocal()` 的候选，不是 Central 字节）：`MeguvizBindingTest` 17 项，其中新增 1 项把两参与五参写法并排跑同一组断言。
+- ABI：当前 android release AAR 的 `tools/dump_abi.py` 结果仍包含 `docs/abi/1.0.0/android-api.txt` 的全部成员
+  （`check_abi_superset.py` 通过），新增的只有 `forView`。`docs/abi/1.2.0/` 目前只有 core 的基线，本轮没有为 android 另建基线。
+- 设备：Xiaomi 2210132C（API 33）上 `contracts` 模式通过，`CONTRACT PASS checks=79`，其中 6 项是 `forView` 的新检查
+  （与显式构造器逐像素相同、同一 recipe 实例、不安装背景、两个空参数各自报错、另一密度下像素确实不同）。测试 APK 用临时
+  init 脚本改了 `testApplicationId` 并排安装，跑完已卸载，没有替换设备上已有的合同包。
+- 发现但未处理：`tools/run-api-contracts.sh` 写死的 `CONTRACT PASS checks=52` 与当前代码不符（API 33 实测 79，扣除本轮的 6 项也
+  不是 52）；该脚本用于 API 21/22，本轮没有那两个版本的环境，无法确定正确数字，未改脚本。
+- 未运行：`binding` / `wrapper` / `protocol` / `cache` 四个设备模式（`binding` 启动后设备被另一会话占用，已中止）、
+  其他 API 版本、其余三座桥（compose、meguviz-ui、lumen）的检查、R8 与独立消费者。
