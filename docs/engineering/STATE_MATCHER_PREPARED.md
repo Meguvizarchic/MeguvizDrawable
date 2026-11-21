@@ -1,94 +1,57 @@
-# 状态匹配 prepared matcher（opt-in）
+# 状态匹配预编译与共享缓存（PreparedMatcher & StateMatcherCache）
 
-## 结论
+## 概述
 
-`StateMatcher.prepare(StateColorList)` 返回可复用的 `PreparedMatcher`，只暴露
-`matchIndex(int[])`。它是显式 opt-in：默认 `StateMatcher.matchIndex` / `matches` 行为不变，
-调用方自行持有 prepared 实例并重复使用才值得。
+`StateMatcher.prepare(StateColorList)` 返回可复用的 `PreparedMatcher`（仅暴露 `matchIndex(int[])`）。默认的 `StateMatcher.matchIndex` 与 `matches` 保持直接遍历匹配；当同一套状态规则会被高频查询时，调用方持有 `PreparedMatcher` 可消除重复扫描。
 
-`RecipeDrawable` 自 2026-11-05 起**按实例惰性**持有一个 `PreparedMatcher`：首次
-`STATEFUL_SOLID` 外观更新时才 `prepare` 一次，之后每次状态变化只做一次字段读 + 数组读。
-不在构造期建表，因为 `ConstantState.newDrawable()` 与 XML inflation 会创建大量可能永不
-变化状态的实例，而大表建表成本按 `(1<<K)*R` 外推可达数毫秒。宽规则或超预算时 `prepare`
-返回委托 direct 的 fallback，行为与直接匹配一致。
+`RecipeDrawable` 采取**按实例惰性解析**：不在构造阶段或 XML inflate 时建表（避免大量永不切换状态的实例白白支付建表开销），而是在首次 `STATEFUL_SOLID` 外观更新时向 `StateMatcherCache.shared()` 查询或构建一次 `PreparedMatcher`，之后每次状态切换仅执行一次字段读与表读取。若规则过宽或超出建表预算，`prepare` 会自动返回委托至直接匹配的 fallback 实例。
 
-## 有界共享缓存（`StateMatcherCache`）
+## 有界共享缓存：`StateMatcherCache`
 
-`StateMatcherCache` 是进程级、有界、LRU 的编译表缓存，供 `RecipeDrawable` 在**每实例首次**
-解析时调用一次 `acquire`：
+`StateMatcherCache` 为进程级、按权重上限管理的有界 LRU 缓存，供 `RecipeDrawable` 在每实例首次解析时调用 `acquire`（该类随 `1.2.0` 正式发布）：
 
-- **键只含规则条件**（有序 `StateSpec` 列表），不含颜色：条件相同、颜色不同的两个列表共享
-  同一张表。键在构造时算好 `hashCode`，查找不再重走每个条件。
-- **准入**：distinct ID ≤ 8 无条件缓存；> 8 需**表负载**（`2 * 2^K`，不含键字节）≤ `maxWeight/8`。默认 1 MiB 下 K=16（128 KiB）恰好可缓存，K=17 起 `prepare` 本身已 fallback。**超限在 `prepare` 之前按 distinct-ID 扫描预估拒绝**，不付建表成本（K=16/R=64 的建表成本按 `(1<<K)*R` 预算与实测 `ns/填充操作` 外推为数毫秒，仓库内无该 fixture 的直接实测）。成本超过整个 `maxWeight` 的条目直接拒绝，避免「每次建表又立刻淘汰」的空转。委托 direct 的 fallback **不缓存**（无收益且会保留 rules 引用）。
-- **权重**：表字节（`2 * 2^K`）+ 键保留字节；默认上限 1 MiB，按访问序 LRU 淘汰。键保留字节只计 `StateSpec[]` 数组本身，不含被共享的 `StateSpec` 对象，因此实际内存略高于记账值。
-- **建表在锁外**，锁只保护映射操作，避免 K=16 的 ~2 ms 建表阻塞其他线程。访问序 `LinkedHashMap.get` 会改写链表，所以查找本身在监视器内串行；「每实例一次」量级可接受，每帧调用则需换并发映射 + 独立 LRU。
-- **查询热路径绝不查缓存**：独立测量显示 `HashMap<StateColorList,…>` 在 R≥16 时每次 52–61 ns，比 direct（10–66 ns）更慢，因为 `StateColorList.hashCode` 是 O(R)。该测量来自未跟踪的 scratch 探针（`benchmark/build/scratch/StateMatcherProbe.java` 的 `cacheOverhead`），未并入已跟踪探针。
+- **缓存键仅含条件列表**：键为有序 `StateSpec` 数组而不含颜色值。规则条件相同但配色不同的两个 `StateColorList` 共享同一张查找表；键在构造时预计算 `hashCode`。
+- **缓存接收策略**：去重后的条件 ID 数 `distinct <= 8` 时无条件接收；`distinct > 8` 时要求表载荷（`2 * 2^K` 字节，不含键自身开销）不超过 `maxWeight / 8`。在默认 `1 MiB` 上限下，最大可编译表 `K = 16`（`128 KiB`）恰好允许入缓存，而 `K >= 17` 在 `prepare` 阶段已直接走 fallback。超限表会在 `prepare` 之前按 `distinctIds` 预扫描直接拒绝，避免支付大表构建成本；单条总成本超过 `maxWeight` 的表亦直接拒绝，防止每次建表即被淘汰的空转。委托直接匹配的 fallback 绝不入缓存。
+- **权重记账**：总权重按表载荷（`2 * 2^K`）与键数组自身引用保留字节累计（默认上限 `DEFAULT_MAX_WEIGHT = 1 MiB`），基于访问序 `LinkedHashMap` 按 LRU 淘汰（注：因共享 `StateSpec` 对象本身未计入键字节，实际内存占用略高于记账值）。
+- **锁外建表与查表边界**：查表和建表均在锁外执行，监视器仅保护缓存映射读写，避免 `K = 16`（约数毫秒）的建表阻塞其他线程。`StateMatcherCache` 设计前提为“每实例初始化调用一次”，切忌在每帧或每次状态查询时直接查询共享 `HashMap`（独立探针测得 `R >= 16` 时 `HashMap<StateColorList, ...>` 每次查询达 `52–61 ns`，慢于直接匹配的 `10–66 ns`）。
 
-合同：`StateMatcherCacheContractTest`（31 项：同条件共享、异条件不共享、fallback 不缓存、
-超限表在建表前拒绝、极小预算不空转、LRU 命中刷新、跨列表取色、权重淘汰、clear、
-与 direct 逐点一致、8 线程并发只留一条且权重不重复计）。`:core:contractTest` 默认 148 项通过。
+## 等价性与 platform 差异
 
-**ABI 变更**：`StateMatcherCache` 是新增公开类，`docs/abi/1.1.0/core-api.json` 的
-`api_sha256` 由 `320ede76…` 更新为 `7763f8e4…`（导出类 53 → 54）。1.1.0 尚未发布，属
-发布前 API 扩展。
+`PreparedMatcher` 与直接匹配在所有输入下逐点等价：相同有序规则首匹配、正/负条件语义、`0` 提前终止、无匹配返回 `-1`、`null` 抛 `NullPointerException`，并同样保留 unknown/custom ID、负数状态、空数组与无终止符数组的行为。
 
-逐点等价于本库 direct 匹配：同一规则顺序首匹配、正/负条件、spec 与 state 的 0 终止、
-无匹配返回 -1、null 抛 `NullPointerException`。unknown/custom ID、state 中的负值、
-`Integer.MIN_VALUE`、空数组、无终止符数组均保持原语义。
+**与 AOSP `StateListDrawable` 的差异**：AOSP 在 `indexOfStateSet` 返回 `-1` 后会用 `StateSet.WILD_CARD` 再做一次通配匹配；本库不做二次通配，`matchIndex` 返回 `-1` 后交由 `RecipeDrawable` 的 `fallbackColor` 处理，空 `StateSpec()` 只是按序排列的一条普通规则。
 
-## 平台差异
+## 编译策略与预算上限
 
-AOSP `StateListDrawable.onStateChange` 在 `indexOfStateSet` 返回 -1 后会再用
-`StateSet.WILD_CARD` 做第二次通配匹配。本库不这样做：`matchIndex` 返回 -1，由调用方
-（`RecipeDrawable` 的 fallback 颜色）处理；空规则只是普通有序规则，不额外回退。
-prepared 不改变这一点。
-
-## 策略与边界
-
-对规则列表收集去重后的条件 ID（正负取绝对值），设 K=distinct、R=规则数：
+设去重后的条件 ID 数为 `K`（取正负条件绝对值）、规则条数为 `R`：
 
 | 条件 | 策略 |
-|---|---|
-| K ≤ 16 且 R ≤ 32767 且 `(1<<K)*R ≤ 1<<22` | short 查表 |
-| 其他 | 直接匹配（fallback） |
+| --- | --- |
+| `K <= 16` 且 `R <= 32767` 且 `(1 << K) * R <= 1 << 22` | 编译为 `short[]` 查找表 |
+| 其他情况 | 回退直接匹配（fallback） |
 
-- 表项为 `short`，payload = `2 * 2^K` 字节；K=16 时 128 KiB（int 表则 256 KiB），
-  另有 `ids` 数组。表建成时 `PreparedMatcher` 不持有 `rules`。
-- 收集 ID 时一旦出现第 17 个不同 ID 立即停止并 fallback；`R > 32767` 直接 fallback。
-- 预算只约束建表填充 `(1<<K)*R`；ID 扫描长度由输入决定，不对任意规则宣称绝对有界。
+- `short[]` 表在最坏 `K = 16` 时载荷为 `2 * 2^16 = 128 KiB`（使用 `int` 则需 `256 KiB`），且建表完成后不保留 `StateColorList` 引用。
+- 扫描条件 ID 时一旦发现第 `17` 个不同 ID 立即中止扫描并回退；`R > 32767` 直接回退。
+- 预算上限约束表填充循环 `(1 << K) * R`，前缀 ID 扫描长度取决于调用方输入长度。
 
-## 成本
+## 复杂度与宿主探针数据
 
-- 编码 state：O(state 长度 × K)；查表：一次数组读。整体不是 O(1)。
-- 准备：最坏 O((1<<K)*R)，受预算上限约束；不保证任意规则绝对有界。
-- 只有重复使用才划算。探针（JDK 17 宿主，1M 次/轮，4 热身 + 7 测量，中位数）：
+- 单次状态编码复杂度为 O(`state.length * K`)，查表为一次数组读；准备期最坏为 O(`(1 << K) * R`)（受预算保护）。
+- 仅在状态会被多次触发的控件上能摊销建表成本。宿主 JVM 探针（`benchmark/StateMatcherProbe.java`，JDK 17，每轮 100 万次，4 轮热身 + 7 轮测量取中位数）：
 
-| fixture | K | R | prep ns | 表 B | direct ns | prepared ns | 加速 | 回本查询数 |
-|---|---|---|---|---|---|---|---|---|
-| pilot8 | 8 | 13 | 3900 | 512 | 26.3M | 8.8M | 2.98x | 224 |
-| page2 | 2 | 2 | 100 | 8 | 4.9M | 3.1M | 1.55x | 58 |
-| real4 | 4 | 4 | 200 | 32 | 5.9M | 4.0M | 1.46x | 108 |
-| custom6 | 6 | 9 | 699 | 128 | 15.0M | 3.4M | 4.36x | 61 |
-| short1 | 1 | 1 | 400 | 4 | 4.2M | 1.9M | 2.16x | 178 |
-| wide20 | 20 | 9 | 24900 | 0 | 15.7M | 10.2M | n/a（fallback） | n/a |
-| budgetFallback | 16 | 65 | 2199 | 0 | 182.0M | 192.4M | n/a（fallback） | n/a |
+| 夹具 | K | R | 建表耗时 (ns) | 表大小 (B) | direct (ns) | prepared (ns) | 加速比 | 回本查询次数 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `pilot8` | 8 | 13 | 3,900 | 512 | 26.3M | 8.8M | 2.98x | 224 |
+| `page2` | 2 | 2 | 100 | 8 | 4.9M | 3.1M | 1.55x | 58 |
+| `real4` | 4 | 4 | 200 | 32 | 5.9M | 4.0M | 1.46x | 108 |
+| `custom6` | 6 | 9 | 699 | 128 | 15.0M | 3.4M | 4.36x | 61 |
+| `short1` | 1 | 1 | 400 | 4 | 4.2M | 1.9M | 2.16x | 178 |
+| `wide20` | 20 | 9 | 24,900 | 0 | 15.7M | 10.2M | n/a（fallback） | n/a |
+| `budgetFallback` | 16 | 65 | 2,199 | 0 | 182.0M | 192.4M | n/a（fallback） | n/a |
 
-同一 fixture 多次运行有 ±20% 抖动；real4 观测到的区间约 1.26-1.63x。fallback 两列计时
-走同一代码路径，比值无意义，标 n/a。
+多次运行存在约 `±20%` 抖动；fallback 夹具两侧走同一直接匹配分支，因此不计算加速比。
 
-一次性或状态序列很短时，准备成本可能超过收益（break-even 列）。K 较大、规则互斥导致
-建表扫描很长时，budget fallback 回到直接匹配。
+## 适用范围与验证说明
 
-## 证据与文件
-
-- 实现：`core/src/main/java/io/github/jichuo1/meguviz/drawable/core/StateMatcher.java`
-- 差分测试：`core/src/test/java/io/github/jichuo1/meguviz/drawable/core/StateMatcherFastPathTest.java`
-  默认仅 224 项真实检查：代表掩码、少量固定种子差分、first-match/正负条件/终止符、K16/17、
-  R32767/32768、预算 64/65（反射锁定 table 非空/为空）、unknown/custom/null 等关键语义。
-- 核心默认合同总计 707 项；原穷举与广随机语料保留在手动压力入口，不接入默认 `check`。
-  `gradlew :core:contractStress --offline --no-daemon` 显式运行原大语料；matcher 压力入口仍为
-  426,900 项。计数表示实际断言，未聚合或隐藏循环；默认采样量和实际执行量均已缩减。
-- 探针：`benchmark/StateMatcherProbe.java`；原始 CSV 在 `benchmark/build/`（本地忽略，不发布）
-- 基线：`2690458` / `9f7aee2`，StateMatcher 源码相同
-
-宿主 JVM 实验，不外推 Android/ART、帧耗时或设备收益。
+- 实现位于 `core/src/main/java/io/github/jichuo1/meguviz/drawable/core/StateMatcher.java` 与 `StateMatcherCache.java`，由 `StateMatcherFastPathTest`（默认 224 项精准检查）与 `StateMatcherCacheContractTest`（31 项）覆盖，完整穷举与差分语料可通过 `./gradlew :core:contractStress --offline --no-daemon` 运行。
+- 上述实验数据全部来自宿主 HotSpot JVM（对比基线 `2690458` / `9f7aee2`），不外推至 Android ART 性能、设备帧耗时或真实功耗收益。

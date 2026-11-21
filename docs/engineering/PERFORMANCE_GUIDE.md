@@ -1,293 +1,97 @@
 # 性能测量指南
 
-本文件记录 MeguvizDrawable 的性能测量协议与已完成的测量。原则：只报告可复现的测量，不把主机实验
-推断成设备收益；分配、准备成本、内存和帧耗时分开陈述；每个候选在进入生产前先通过正确性合同。
+本文件记录 MeguvizDrawable 的性能测量协议与已完成的宿主 JVM 测量。原则：仅报告可复现测量，分配、准备成本、内存与帧耗时分开陈述，且每个优化候选在合入前必须先通过对应正确性合同。引用上游文档（Go `singleflight`、Android `Drawable` 官方参考）均来自直接阅读源码与官方文档。
 
-外部检索通道本轮不可用（Exa 返回 401）。下文引用均来自对上游源码与官方文档的直接阅读，不声称来自
-外部研究服务。
-
-## 测量什么、怎么测
+## 测量协议
 
 | 项 | 方法 |
-|---|---|
-| 分配 | 宿主 JVM，`com.sun.management.ThreadMXBean.getThreadAllocatedBytes(线程 id)`（`java.lang.management.ThreadMXBean` 没有该方法）包裹测量循环，报告每次调用的字节数 |
-| 视图 | 每个构建跑两种 JVM 视图：默认（逃逸分析开启）与 `-XX:-DoEscapeAnalysis`（原始分配视图）。两者都记录 |
-| 夹具 | 固定夹具：预建的键、预建的生产者与订阅者，测量循环内夹具自身零分配；每轮 1,000,000 次调用，4 轮热身 + 7 轮测量，每轮报告中位数 |
-| 进程 | 每个视图独立 JVM 进程。分配计数受 JIT/逃逸分析影响，不做"绝对不波动"的断言；本轮观测：改动前每视图 1 个 fork、改动后默认视图 3 个 fork 与 raw 视图 2 个 fork，数值全部一致 |
-| 正确性前提 | 同一构建先过 `gradlew --offline --no-daemon check`（宿主合同）与 Android profile 的编译/lint |
+| --- | --- |
+| 分配计数 | 宿主 JVM 使用 `com.sun.management.ThreadMXBean.getThreadAllocatedBytes(tid)` 包裹测量循环，报告单次调用分配字节数 |
+| 运行视图 | 每次对比同时记录默认视图（开启逃逸分析 EA）与 `-XX:-DoEscapeAnalysis`（原始分配视图） |
+| 固定夹具 | 预建键、生产者与订阅者，循环内夹具零额外分配；每轮 1,000,000 次调用，4 轮热身 + 7 轮测量取中位数 |
+| 进程隔离 | 每个视图在独立 JVM 进程中运行 |
+| 正确性前提 | 同源码先通过 `./gradlew --offline --no-daemon check` 与 `-Pmeguviz.profile=android` 编译及 Lint |
 
-不测、不宣称：帧耗时、FPS、Android/ART 收益、热节流、GC 暂停。设备侧行为以设备合同为准
-（见 [VERIFICATION.md](VERIFICATION.md) 的 instrumentation 协议），未跑设备就不写设备结论。
+## 首轮测量：`FlightCache.request` 惰性分配（2026-11-04）
 
-## 首轮测量：FlightCache.request 惰性分配（2026-11-04）
+改动：`request` 命中与拒绝路径不再提前分配订阅者记录与 `unqueue` 列表；加入在途飞行时仍创建订阅者记录（需登记在飞行上），但不再预建 `unqueue`；仅在启动新飞行或为腾位淘汰已放弃飞行时按需创建 `unqueue`。`dropOneAbandoned` 改为返回被丢弃飞行，保留“丢弃飞行”与“`task` 尚未赋值”的语义区分，同时把执行器失败回滚扩展到非 `RejectedExecutionException` 的 `RuntimeException` / `Error`。
 
-改动：命中与拒绝路径不再预先创建订阅者记录与 `unqueue` 列表；加入路径仍必须创建订阅者记录
-（它登记到飞行上、会逃逸），但不再创建 `unqueue`；`unqueue` 仅在真正启动一个飞行（或为它腾位而
-丢弃一个被放弃的飞行）时创建。`dropOneAbandoned` 随之改为返回被丢弃的飞行，由调用方按
-`task != null` 决定是否入队移除——原实现区分“丢弃了飞行”与“该飞行 task 尚未赋值”的语义保持不变。
-公开 API、回调时机、owner 线程归属、统计计数与取消语义不变；`request` 的执行器失败回滚已扩大到非 REE 的 `RuntimeException`/`Error`（见 [FLIGHT_CACHE.md](FLIGHT_CACHE.md)）
-（`CoreContractTest` 20,405 项通过，含本轮新增的回归与异步准备示例合同）。
+结果（每调用分配字节数，7 轮中位数；对比基线 `2690458` 还原构建与候选构建，探针 `benchmark/FlightCacheAllocationProbe.java`）：
 
-结果（每调用分配字节数，7 轮中位数；确定性数值。由 `benchmark/FlightCacheAllocationProbe.java`
-对固定基线提交 `2690458` 还原的改动前构建与候选构建分别测得，同一探针二进制、同一夹具）：
+| 路径 | 改前（默认 EA） | 改后（默认 EA） | 改前（`-XX:-DoEscapeAnalysis`） | 改后（`-XX:-DoEscapeAnalysis`） |
+| --- | --- | --- | --- | --- |
+| 命中 | `32.000` | `32.000` | `104.000` | `32.000` |
+| 加入 | `104.000` | `56.000` | `104.000` | `56.000` |
+| 拒绝 | `104.000` | `32.000` | `136.000` | `64.000` |
+| `peek`（参照，未改） | `0.000` | `0.000` | `0.000` | `0.000` |
 
-| 路径 | 改动前（默认 EA） | 改动后（默认 EA） | 改动前（`-XX:-DoEscapeAnalysis`） | 改动后（`-XX:-DoEscapeAnalysis`） |
-|---|---|---|---|---|
-| 命中 | 32.000 | 32.000 | 104.000 | 32.000 |
-| 加入 | 104.000 | 56.000 | 104.000 | 56.000 |
-| 拒绝 | 104.000 | 32.000 | 136.000 | 64.000 |
-| `peek`（参照，未改） | 0.000 | 0.000 | 0.000 | 0.000 |
+解读：
+- 默认 EA 下命中路径前后均为 `32.000 B`（HotSpot C2 已标量替换未逃逸的 `Sub` 与 `ArrayList`，仅剩逃逸出的 `Ticket`）；收益体现在原始分配视图（`104.000 → 32.000 B`）及冷启动/解释执行路径。
+- 加入路径因 `Sub` 必须登记到飞行上，两种视图均从 `104.000` 降至 `56.000 B`（消除了多余 `ArrayList` 及其底层数组）。
+- 拒绝路径默认视图 `104.000 → 32.000 B`、原始分配视图 `136.000 → 64.000 B`。
+- `FlightCacheContractTest`（含 `rejectionPathLeavesNothingToCancel` 与 `droppedFlightWithoutAssignedTaskStillMakesRoom`）与 `AsyncPreparationContractTest` 锁定上述可观测行为。
 
-如实解读：
-
-- 默认视图下命中路径前后都是 32.000 B：HotSpot C2 在热循环里已把不逃逸的 `Sub` 与 `ArrayList`
-  标量替换，字节计数里只剩逃逸的 `Ticket`。也就是说，这条路径在主机热循环上的分配收益为 0，
-  收益存在于原始分配视图（104.000 → 32.000 B，即每次少分配 `Sub`、`ArrayList` 及其 backing array）
-  和未充分优化的代码路径（冷启动、解释执行）。
-- 加入路径两种视图都是 104.000 → 56.000 B：该路径的 `Sub` 必须保留（它登记到飞行上、会逃逸），
-  移除的是 `ArrayList` 与 backing array；默认视图下 C2 未能消除这个列表，因此这里是即使在热循环中
-  也真实存在的分配下降。
-- 拒绝路径默认视图 104.000 → 32.000 B，关闭 EA 视图 136.000 → 64.000 B；两者之差是
-  `dropOneAbandoned` 迭代器的分配，改动前后相同。
-- 以上都是宿主 JVM 分配计数。没有测量帧耗时，没有在 Android/ART 上运行，不声称任何设备/ART 收益。
-
-配套的 host 合同（`FlightCacheContractTest`，随 `gradlew check` 执行）钉住本次改动的可观测面：
-
-- `rejectionPathLeavesNothingToCancel`：拒绝路径不登记订阅者——被拒的 `Ticket` 无可取消
-  （`cancel()` 为 false）、订阅者永不被调用、`cancelledSubscribers` 不增加。
-- `droppedFlightWithoutAssignedTaskStillMakesRoom`：`dropOneAbandoned` 改返回被丢弃飞行后，
-  “丢弃了飞行但 task 尚未赋值”这一竞态窗口（纳秒级、公开 API 不可达，测试用反射直接构造）
-  仍然为请求腾位而不是拒绝；task 为 null 时不入队移除。改动前该窗口由
-  `if (flight.task != null) unqueue.add(...); return true;` 覆盖，行为等价。
-
-## 复现
-
-宿主合同与 Android profile（JDK 17、Gradle Wrapper 9.8.2、仓库根目录）：
+## 复现命令
 
 ```text
 gradlew --offline --no-daemon check
 gradlew --offline --no-daemon -Pmeguviz.profile=android check :android:assembleDebugAndroidTest
-# 手动扩展验证，不属于默认 check：
+# 手动扩展压力语料（不纳入默认 check）：
 gradlew --offline --no-daemon :core:contractStress
-```
 
-默认合同按语义等价类保留少量固定种子样本与精确边界，并约束总实际检查数小于 1,000；随机状态/几何大语料、完整差分穷举和重复并发压力只在 `contractStress` 中执行。计数仍是实际断言数，不以聚合布尔或修改显示隐藏循环。不要把可选压力任务接回日常 `check`。
-
-宿主合同现包含 `AsyncPreparationContractTest`：只用既有 API（`BindingScope.begin/commit` +
-`FlightCache.request` + `Subscriber.isCurrent`）演示通用异步准备——READY 命中立即安装、每 slot 一个
-有界提交、失败与拒绝可观测、latest-wins、仅 owner 安装、取消/关闭不销毁共享缓存值。完整可运行版本
-即该测试文件；短示例与所有权规则见 [FLIGHT_CACHE.md](FLIGHT_CACHE.md)。
-
-分配夹具已固化为仓库内的探针（纯 Java，不执行 shell、不添依赖，CSV 输出，与
-`benchmark/CorePilot.java` 同一模式）：
-
-- `benchmark/FlightCacheAllocationProbe.java`：固定夹具（八个预建键、一个排队飞行、占满的飞行
-  预算），每轮 1,000,000 次调用、4 轮热身 + 7 轮测量，报告中位数；命中/加入/拒绝/`peek` 四个
-  场景，并用生产者调用计数防夹具漂移。
-- `benchmark/run-flightcache-probe.ps1`：编译当前 core 源码与探针到本地构建目录，跑 N 个独立
-  JVM 进程，原始输出与源码 SHA-256、协议写入 `docs/engineering/evidence/runs/`（本地忽略目录）；
-  `-View raw` 追加 `-XX:-DoEscapeAnalysis`（探针通过 `-Dprobe.rawAllocation` 记录同一事实）。
-
-```text
+# 宿主 JVM 分配探针（输出写入本地忽略目录 docs/engineering/evidence/runs/）：
 powershell -ExecutionPolicy Bypass -File benchmark/run-flightcache-probe.ps1 -Forks 3 -View default
 powershell -ExecutionPolicy Bypass -File benchmark/run-flightcache-probe.ps1 -Forks 3 -View raw
 ```
 
-对固定基线提交 `2690458` 还原的改动前构建用同一探针二进制补测，保证前后同夹具、同工具；不要把提交后的 `HEAD` 当作改动前基线。
+## `RecipeDrawable`、`DrawableState` 与惰性状态表结构优化（2026-11-04 至 2026-11-05）
 
-## 同期结构性改动（无宿主运行视图）
+以下改动均在保持既有公开语义不变的前提下减少中间对象分配：
+1. `RecipeDrawable.onBoundsChange` 复用实例字段 `resolved` scratch 数组，每次 `ROUND_RECT` 尺寸变化省去一个 `float[8]`（instance 限于 owner 线程且 `CornerRadii.normalize` 自行复制输入）。
+2. `setTintList` / `setTintMode` 增加引用同一性守卫，重复设置同一实例不再触发多余 `updateTint()` 与 `invalidateSelf()`。
+3. `core/model` 下 8 个不可变模型、`BindingEnvironment` 与 `DrawableState` 在 `equals` 开头增加 `this == other` 短路；`DrawableState.stateSet` 由 `IntArray(7)` + `copyOf` 两次分配改为先计数再一次精确分配 `IntArray(count)`。
+4. `RecipeDrawable` 增加 owner 线程惰性 `PreparedMatcher` 字段（详见 [STATE_MATCHER_PREPARED.md](STATE_MATCHER_PREPARED.md)），首次 `STATEFUL_SOLID` 外观更新时向 `StateMatcherCache.shared()` 查询/构建一次，避免为永不改状态的实例支付建表成本，也不在状态查询热路径引入共享 `HashMap`。
 
-`RecipeDrawable`（android 模块）的两项清理没有宿主运行测量：`android.jar` 是抛桩存根，不能承载
-框架类的真实执行，因此不做桌面 JVM 基准，也不据此推断设备数字。
+## `MeguvizBinding` 投影缓存（2026-11-07）
 
-1. `onBoundsChange` 复用字段级 scratch 数组（每次 ROUND_RECT 边界变化少一个 `float[8]`）。
-   `CornerRadii.normalize` 的输入契约是"复制输入、不保留、不修改"，drawable 实例又被约束在 owner
-   线程，复用不改变语义。`CornerRadii.normalize` 内部的 `clone()` 是该公开方法的既定契约，不动。
-2. `setTintList`/`setTintMode` 增加身份比较守卫：相同实例重复设置不再触发 `updateTint()` 与
-   `invalidateSelf()`，与既有 `setAlpha`/`setColorFilter` 的守卫一致。就本类事实而言：
-   `RecipeState` 只保存不可变数据（recipe、density、alpha、tintMode、configurations），
-   `getConstantState()` 在存在 tint 或显式滤镜时保守返回 `null`，`newDrawable()` 重新跑
-   `updateTint()`，`mutate()` 是空操作，有状态 tint 的重新解析走 `onStateChange`——
-   共享路径上不会出现“另一个实例用同一实例修补 tint”的情形，守卫只消除无效重绘，视觉语义不变；
-   `setTint(int)` 每次传入新建的 `ColorStateList`，行为与改动前相同。这是对本类实现的陈述，
-   不推广为对平台 `Drawable` 的一般结论。设备合同（`ContractInstrumentation.filtersAndAlpha`）
-   已补“同实例重复设置 `invalidations == 0` 且像素不变”的断言，本轮只编译未运行（无设备授权）。
+仅针对 `meguviz-android` 桥模块：构造时捕获一次不可变的 `EpochDomain[2]`（`resources` / `theme`），按 `EpochDomain.matches` 增量刷新 `Stamp`，在 `(resourceRevision, registryRevision)` 未变时直接复用同一不可变 `BindingEnvironment` 实例。
 
-这两项的验证依赖 Android profile 编译/lint 与设备合同（`contracts`/`binding` 模式）；设备合同本轮
-未运行（有设备在线但未获安装授权，见 [VERIFICATION.md](VERIFICATION.md) 对应小节），在跑通前不声称
-像素结论。
-
-## 2026-11-05：不可变模型同一性快速路径与 `DrawableState` 精确分配
-
-两项低风险改动，均无宿主运行视图（前者只影响比较成本，后者在 Compose/Android 侧）：
-
-1. `core/model` 下 8 个不可变模型类（`DrawingRecipe`、`FillSpec`、`ShapeSpec`、`LayoutMetrics`、
-   `StrokeSpec`、`Length`、`StateSpec`、`StateColorList`）以及 `binding/BindingEnvironment`、
-   `compose/DrawableState` 的 `equals` 开头增加同一性快速路径。这些实例不可变，
-   `SlotBinding.spec.equals(appliedSpec)`、`BindingScope` 的环境比较、`RememberRecipePainter` 的
-   `remember(recipe, …)` 与宿主若以 recipe 为键的哈希容器会在重复实例比较上直接受益；
-   `hashCode` 与字段未改，ABI 不变。
-2. `DrawableState.stateSet` 由 `IntArray(7)` + `copyOf(count)` 两次分配改为先计数再
-   `IntArray(count)` 一次分配；flag 顺序与"每次返回新数组"的契约不变。
-
-验证：`./gradlew :core:contractTest`（106 项通过）、`./gradlew check` 通过、
-`tools/dump_abi.py` 生成的 `core-api` 与 `docs/abi/1.1.0/core-api.json` 一致、
-`:compose:compileDebugKotlin -Pmeguviz.profile=bridges` 通过（需 `ANDROID_HOME`）。设备合同
-`ComposeContract` 的 `stateSet` 断言已加强为精确数组相等（含顺序、长度与全 false 空数组），
-但该 androidTest 不在 `check` 内，本轮未在设备运行；不声称设备收益。
-
-## 2026-11-05（第四轮）：RecipeDrawable 惰性状态表
-
-`RecipeDrawable` 增加 owner 线程私有的 `PreparedMatcher` 字段，**首次** `STATEFUL_SOLID`
-外观更新时 `StateMatcher.prepare` 一次，之后每次状态变化走 prepared 快路径（一次字段读 +
-数组读）。构造期不建表：`newDrawable()`/inflation 会创建大量可能永不变化状态的实例，而
-K=16/R=64 建表实测约 2 ms（host JVM，120 Hz 单帧预算的 24%）。
-
-host 探针（`StateMatcherProbe`，1M 次/轮）既有数据：page2 4.9→3.1 M ns（1.55×，回本 58
-次查询）、real4 5.9→4.0（1.46×，108）、custom6 15.0→3.4（4.36×，61）、pilot8 26.3→8.8
-（2.98×，224）。**单实例**回本需 58–224 次状态变化；按一次按压约 2 次 `onStateChange`
-折算为 29–112 次按压，低频控件可能不回本。
-
-**共享 Map 不进查询热路径**：独立测量显示 `HashMap<StateColorList,…>` 在 R≥16 时每次查询
-52–61 ns，比 direct（10–66 ns）更慢，因为 `StateColorList.hashCode` 是 O(R)。因此本轮只做
-实例字段 memo，不做跨实例共享缓存。
-
-2026-11-06 补充：跨实例共享缓存已在下一轮实施（`StateMatcherCache`，specs-only 键 + 权重
-上限 + LRU，只在每实例首次 `acquire` 时访问一次，查询热路径仍只读实例字段）。详见
-[状态匹配 prepared matcher](STATE_MATCHER_PREPARED.md)。
-
-验证：`:core:contractTest`、`check`、`:android:compileDebugJavaWithJavac` 通过；设备像素与
-分配未测，不声称设备收益。
-
-## 2026-11-07：MeguvizBinding 投影缓存（host 验证）
-
-改动（仅 `meguviz-android` 桥模块）：`MeguvizBinding.project()` 原先每次调用都会新建
-`EpochDomain[2]`、两个 `Stamp`、一个 `BindingEnvironment`，`begin()` 还会再建一个依赖数组。
-现在把依赖数组在构造时捕获一次（`ResourceState` 的 `resources`/`theme` 是 final 字段，
-`BindingLease` 会自行克隆数组），按 `EpochDomain.matches` 增量刷新 stamp，并在
-`(resourceRevision, registryRevision)` 未变时复用同一个不可变 `BindingEnvironment`；
-`begin()` 复用同一数组。
-
-`project()` 因此不再调用 `ResourceState.requireOpen()`；资源域已关闭时 `EpochDomain.stamp()`
-仍抛 `IllegalStateException`，而 `sync()` 本来就捕获该异常并关闭绑定，行为保持。
-
-结果（`benchmark/BindingPostAllocationProbe.java`，真实 runtime 1.2.0 jar，宿主 JVM，
-`ThreadMXBean`，3 fork 中位数）：
+结果（`benchmark/BindingPostAllocationProbe.java`，结合 `meguviz-android-runtime:1.2.0` jar，宿主 JVM，3 fork 中位数）：
 
 | 路径 | 改前（默认 EA） | 改后（默认 EA） | 改前（`-XX:-DoEscapeAnalysis`） | 改后（`-XX:-DoEscapeAnalysis`） |
-|---|---|---|---|---|
-| `project()` | 32 | 0 | 104 | 0 |
-| `begin()` | 352 | 328 | 456 | 328 |
-| `begin+post+drain+frame()` | 621.2 | 594.8 | 944 | 712 |
+| --- | --- | --- | --- | --- |
+| `project()` | `32` | `0` | `104` | `0` |
+| `begin()` | `352` | `328` | `456` | `328` |
+| `begin+post+drain+frame()` | `621.2` | `594.8` | `944` | `712` |
 
-交织时序测量显示改后不慢于改前。
+`MeguvizBindingTest` 16/16 通过。（注：2026-11-07 实验时 `meguviz-android-runtime:1.2.0` 尚在本地缓存调试，现已正式发布至 Maven Central。）
 
-验证：`MeguvizBindingTest` 16/16 通过（含新增的缓存/失效合同用例）；
-`./gradlew --offline --no-daemon check` 与 `-Pmeguviz.profile=android check` 通过。
-桥模块（`meguviz.profile=bridges`）在本机无法用 Gradle 构建：`meguviz-android-runtime:1.2.0`
-尚未发布到 Maven Central，Gradle module cache 里也没有该版本元数据；本次改用 Gradle
-transforms cache 中真实的 1.2.0 runtime jar 在宿主 JVM 上编译并运行测试。
-未做 Android/ART/设备验证；`project()` 属于 `begin/commit/sync/post` 路径，不是每帧路径。
+## 平台渲染与模糊边界红线（调研固化，2026-11-07）
 
-## 2026-11-07：平台最佳实践对照与渲染约束（调研，无代码改动）
+- `RecipeDrawable` 的 `ConstantState`/`mutate`、Paint/Path 复用与惰性 `PreparedMatcher` 符合平台 copy-on-write 原则。
+- 当前无跨进程位图路径；后续若新增跨进程传输，应走 `SharedMemory` / `HardwareBuffer` 句柄避免 CPU 读回。
+- 非 uniform 圆角依赖 `drawPath` 光栅化；`RenderEffect`（API 31+）/ `RuntimeShader`（API 33+）与复杂模糊效果优先接入或转交 Lumen，基础库保持纯 Java 且不引入 `BlurMaskFilter`、RenderScript 或 AndroidX。
 
-用 Exa 调研了 Drawable `ConstantState`/`mutate`、跨进程 Bitmap 零拷贝、`RenderNode` 绘制快路径、
-`RenderEffect`/`RuntimeShader` 门控与模糊边界。结论用于写死红线，本轮无代码改动：
+## 联合改进第一轮：模型哈希缓存、构造分配与命中路径锁优化（2026-11-08）
 
-- 现有 `RecipeDrawable` 的 `ConstantState`/`mutate`、Paint/Path 复用与惰性 `PreparedMatcher`
-  已符合平台 copy-on-write 最佳实践，不需要重构。
-- 跨进程 Bitmap 走共享内存句柄（`SharedMemory` API 27 / `HardwareBuffer` API 26 /
-  `wrapHardwareBuffer` API 29 / `asShared` API 31），避免 CPU 读回；本库当前没有跨进程位图路径。
-- `RenderNode`（API 29+）只支持硬件 Canvas，仅对大/静态/复杂 Path 值得实验；`drawPath` 是 CPU
-  光栅化路径，非 uniform 圆角受 API 限制只能如此。
-- `RenderEffect`（API 31+）/`RuntimeShader`（API 33+）必须门控并优先复用 Lumen；API 27–30
-  回退 scrim/预模糊；不引入 `BlurMaskFilter` 与 RenderScript；基础库不得引入 AndroidX。
-- 模糊边界：`sigma = 0.57735·r + 0.5`；Skia 大半径内建降采样（`kMaxLinearSigma = 4`，半径约 27），
-  本库半八度 8 档的方向正确。
-
-## 2026-11-08（联合改进 r1）：模型 hash 缓存与构造分配
-
-改动（core/model，无签名变化）：`DrawingRecipe`、`FillSpec`、`ShapeSpec`、`StateSpec`、`StateColorList`
-惰性缓存 `hashCode()`（`String` 同款良性竞争：字段全为 final、hash 由它们确定，`int` 写入原子，
-读到 0 只会重算，不会读到错值）；`equals` 在双方 hash 都已算出且不等时提前返回 false（相等对象 hash 必相等，
-语义不变）。`FillSpec`/`ShapeSpec` 的 hash 改用枚举 `ordinal()` 而非身份 hash，使 hash 值跨进程可复现
-（`hashCode` 的具体数值从未是合同）。`FillSpec.solid`/`statefulSolid` 共享空数组常量（空数组不可变）。
-r2 复核修正：`Length.hashCode()` 当时仍用枚举身份 hash，经 `ShapeSpec`/`StrokeSpec` 传入 recipe，
-所以「跨进程可复现」在 r1 并不成立；r2 把 `Length` 也改为 `ordinal()`，并由 `CoreAdditionalContractTest`
-的值型哈希断言钉住。基线复核（HotSpot 21 单进程）：旧的 `Length.dp(12).hashCode()` 不等于由
-`unit().ordinal()` 与 `value()` 复算出的值；身份 hash 每个 JVM 进程都不同，因此**不引用具体数值**，
-只用「不等于值型复算值」这一可重复判据，判据已固化为合同断言。
-上一提交曾让 `LayoutMetrics.unspecified()` 返回共享常量；r3 已撤回该改动（已发布 1.0.0 每次返回新实例，身份语义不可静默改变），改为由
-`DrawingRecipe.of` 使用**私有**默认常量，因此 `of()` 的 32 B 收益保留，而 `new LayoutMetrics(...)` 的 96 B 构造成本恢复原状。
-下表「32 B」一行只对 `DrawingRecipe.of` 与私有常量成立，不能推广到公开的 `unspecified()`。
-
-方法：`benchmark/ModelProbe.java`，宿主 JVM（OpenJDK 21.0.12.1，Apple M4，默认 JIT/逃逸分析），
-改前 = `b087b3f` 的 core 源码、改后 = 本提交，同一探针二进制；每进程 4 轮热身 + 7 轮测量、每轮 1,000,000 次；
-改前/改后各 5 个进程交错运行（old,new,old,new…）。夹具：8 条状态规则 + 描边 + 圆角的按钮 recipe，
-HashMap 中 65 个 recipe，查找键与表内键相等但不是同一实例。原始 CSV 已入库：
-`docs/engineering/evidence/runs/2026-11-08-model-probe/model-probe.csv`（环境与局限见 `evidence/README.md`）。
-
-| 指标 | 改前（5 进程中位数范围 / 总中位数 / p95） | 改后 |
-|---|---|---|
-| 已算过 hash 的同一 recipe 再次 `hashCode()` | 26.8–35.2 / 29.3 / 40.9 ns | 0.049 ns（循环内只剩字段读，JIT 外提，不代表单次调用成本）|
-| `HashMap.get`（相等但非同一的键） | 96.7–117.1 / 106.3 / 145.0 ns | 59.5–102.6 / 85.5 / 133.4 ns |
-| `new DrawingRecipe(s, f, null, LayoutMetrics.unspecified())` 分配 | 96 B | 32 B（r1 共享常量时的测量，**r3 已撤回，现回到 96 B**）|
-| `FillSpec.solid(c)` 分配 | 80 B | 56 B（少两个空数组克隆）|
-| `DrawingRecipe.of(s, f)` 分配 | —（新 API） | 32 B（私有默认常量；手写四参构造器若走 `unspecified()` 为 96 B）|
-
-如实解读：`HashMap.get` 的剩余成本主要是相等键之间的深度 `equals`（hash 缓存只省掉查找键的 hash 计算），
-改后进程间离散较大（59.5–102.6 ns），只能说中位数下降约 20%；`hash` 字段放进了对象对齐填充，
-`DrawingRecipe` 实例大小在 HotSpot 压缩指针下仍为 32 B（ART 对象布局不同，未测）。
-受益方是以 recipe（或包含它的键）做哈希容器键的调用方：`FlightCache` 键、`StateMatcherCache` 的规则键
-（`StateSpec` hash 缓存后建键少一次遍历）、宿主自己的 `HashMap`。绘制热路径不调用 `hashCode`，
-因此对帧耗时没有直接影响；未在 ART/设备上测量，不声称设备收益。
-
-验证：`CoreAdditionalContractTest.conveniencesAndCachedHashes`（缓存值等于新对象的首次计算值、
-各种首用顺序下相等对象 hash 相等）；`-Pmeguviz.profile=android check`、`:core:contractStress` 通过。
-
-## 2026-11-08（联合改进 r1）：FlightCache 锁内计数改为普通 long
-
-来源：研究笔记 R-B3（不随仓库提交；13 个相邻 `AtomicLong`，
-多数在 `synchronized (lock)` 内自增，原子 RMW 多余；锁外不同线程写相邻计数器是伪共享候选）。逐个核对写者后：
-10 个计数只在持锁时写，改为锁保护的 `long[]`；`delivered`、`stale`、`listenerFailures` 在锁外写
-（所有者线程交付、任意线程的淘汰监听），保留为 3 个独立 `AtomicLong`。`stats()` 仍在锁内读，快照语义不变
-（锁外三个计数与之前一样不是原子快照）。公开 API 与计数含义不变。
-
-方法：`benchmark/FlightCacheHitLatencyProbe.java`，宿主 OpenJDK 21.0.12.1 / Apple M4；改前 = `c006a11`、改后 = 本提交，
-同一探针二进制；单线程与“有竞争”（另一线程持续 `computeNow` 不同键，抢同一把锁）两种模式，改前/改后各 5 进程交错，
-每进程 4+7 轮 × 2,000,000 次。原始 CSV 已入库：`docs/engineering/evidence/runs/2026-11-08-flightcache-hit/fc-hit-probe.csv`（环境与局限见 `evidence/README.md`）。
-
-| 模式 / 路径 | 改前 中位数（进程中位数范围，p95） | 改后 |
-|---|---|---|
-| 单线程 `peek` 命中 | 6.64 ns（5.20–9.48，p95 13.68） | 5.29 ns（4.96–6.20，p95 8.43） |
-| 单线程 `request` 命中 | 10.06 ns（7.89–20.08，p95 20.20） | 9.65 ns（7.65–10.83，p95 12.11） |
-| 有竞争 `peek` | 247 ns（141–655，p95 675） | 206 ns（106–282，p95 374） |
-| 有竞争 `request` | 180 ns（104–246，p95 265） | 141 ns（93–245，p95 327） |
-
-如实解读：单线程命中路径中位数下降约 1.4 ns（`peek`）与 0.4 ns（`request`），尾部更集中；有竞争模式离散很大，
-且该夹具下另一线程的发布会把被测键挤出（`stats_hits_per_measured_op` 约 0.5，即一半是未命中），它主要测的是锁争用，
-只作方向参考，不据此宣称竞争下的收益。HotSpot/M4 结果不外推到 ART；ART 上 thin lock 未竞争时是一次 CAS，
-去掉锁内多余的原子加的绝对收益同样只有几纳秒量级。未在设备上测，伪共享是否真实存在未用 PMU 验证（研究笔记建议真机 simpleperf）。
-
-验证：`FlightCacheContractTest` 全部计数断言（默认 145 项与 `contractStress` 447,225 项）通过。
-
-## 参考（直接阅读，非外部研究服务）
-
-- Go `golang.org/x/sync/singleflight`（https://pkg.go.dev/golang.org/x/sync/singleflight）：同键并发
-  调用共享一次执行的“单飞”语义，是 `FlightCache` 同键合并的设计参照；本轮改动不触碰该语义
-  （8 线程 × 20 轮竞争合同仍通过）。
-- Android 官方文档 `android.graphics.drawable.Drawable`
-  （https://developer.android.com/reference/android/graphics/drawable/Drawable）：
-  `invalidateSelf`、`mutate`、`ConstantState`、`setTintList`/`setTintMode` 的公开契约，是
-  `RecipeDrawable` tint 守卫与 ConstantState 重建路径的阅读依据；上文对该契约的陈述仅限本类
-  `RecipeState` 的实现事实，不做全平台概括。
+1. **模型 `hashCode` 缓存与私有默认 metrics**：`DrawingRecipe`、`FillSpec`、`ShapeSpec`、`StateSpec`、`StateColorList` 惰性缓存 `hashCode()`（`String` 同款良性竞争），`equals` 先比已缓存非零哈希；`FillSpec`、`ShapeSpec` 与 `Length` 改用枚举 `ordinal()` 使哈希值跨进程一致；`DrawingRecipe.of` 使用私有默认 `LayoutMetrics` 常量（公开 `LayoutMetrics.unspecified()` 仍每次返回新实例以维持既有身份契约）。
+   - 宿主 JVM（OpenJDK `21.0.12.1`，`benchmark/ModelProbe.java`，对比基线 `b087b3f`，5 进程交错，原始数据见 `docs/engineering/evidence/runs/2026-11-08-model-probe/model-probe.csv`）：
+     - 重复 `hashCode()`：`26.8–35.2 ns`（中位 `29.3`，p95 `40.9`）降至 `0.049 ns`（循环内字段读）；
+     - `HashMap.get`（相等但非同一键）：`96.7–117.1 ns`（中位 `106.3`，p95 `145.0`）降至 `59.5–102.6 ns`（中位 `85.5`，p95 `133.4`，剩余耗时在深度 `equals`）；
+     - `FillSpec.solid(c)` 分配：`80 B → 56 B`；`DrawingRecipe.of(s, f)`：`32 B`（手写四参构造器配合 `LayoutMetrics.unspecified()` 为 `96 B`）。
+2. **`FlightCache` 锁内计数改为普通 `long[]`**：将仅在 `synchronized (lock)` 内更新的 10 个计数器从 `AtomicLong` 改为锁保护 `long[]`，仅锁外更新的 `delivered`、`stale` 与 `listenerFailures` 保持为独立 `AtomicLong`。
+   - 宿主 JVM（`benchmark/FlightCacheHitLatencyProbe.java`，对比基线 `c006a11`，5 进程交错，原始数据见 `docs/engineering/evidence/runs/2026-11-08-flightcache-hit/fc-hit-probe.csv`）：
+     - 单线程 `peek` 命中：`6.64 ns`（`5.20–9.48`，p95 `13.68`）降至 `5.29 ns`（`4.96–6.20`，p95 `8.43`）；
+     - 单线程 `request` 命中：`10.06 ns`（`7.89–20.08`，p95 `20.20`）降至 `9.65 ns`（`7.65–10.83`，p95 `12.11`）；
+     - 高竞争模式下 `peek`（`247 → 206 ns`）与 `request`（`180 → 141 ns`）因同时发生大量淘汰未命中、离散度大，仅作方向参考。
 
 ## 模块独立性
 
-- 单用 core：`gradlew --offline --no-daemon check`（host 档只包含 `:core`），覆盖全部宿主合同，
-  包括 `FlightCacheContractTest` 与 `AsyncPreparationContractTest`。core 不依赖 Android，也不依赖
-  任何兄弟库。
-- 单用 android：`gradlew --offline --no-daemon -Pmeguviz.profile=android check`（需本机 SDK，
-  经环境变量或 local.properties 定位），core + android 编译、lint 与单测。
-- 显式选桥：`-Pmeguviz.profile=bridges` 才包含 compose/meguviz-android/meguviz-ui/lumen；四个桥
-  只依赖已发布基础库与各自上游，基础库不反向依赖任何桥（见 [BRIDGES.md](BRIDGES.md)）。
+- 仅使用 `:core`（默认 `host` profile）时零 Android 与兄弟库依赖；
+- 仅使用 `:android`（`-Pmeguviz.profile=android`）时零 Kotlin 与 Compose 依赖；
+- 四个可选桥接模块（`-Pmeguviz.profile=bridges`）仅单向依赖基础库与各自对应上游，详细边界见 [BRIDGES.md](BRIDGES.md)。
+
+## 适用范围与验证说明
+
+- 本文记录的所有微基准、分配字节数与延迟中位数均采集于桌面宿主 HotSpot JVM，用于对比代码局部改动在纯 JVM 路径上的差异。
+- 上述数据不代表 Android ART 对象布局、GC 停顿、设备帧耗时（FPS）、热节流或真实业务页面收益；Android 与硬件 Canvas 表现须以对应设备 instrumentation 测试及业务页面基准为准。

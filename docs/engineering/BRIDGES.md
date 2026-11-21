@@ -1,128 +1,79 @@
 # 桥接模块与接口对齐表
 
-对应计划 MD-043、MD-044、MD-045 以及“与其他自研依赖的协作合同”。每个桥是独立的可选制品，基础库
-（`meguviz-drawable-core`、`meguviz-drawable-android`）不依赖其中任何一个，也不依赖它们的上游。
+对应计划 MD-043、MD-044、MD-045 与跨库协作合同。各桥接模块均为独立可选制品；基础库 `meguviz-drawable-core` 与 `meguviz-drawable-android` 不反向依赖任何桥接模块或上游运行时。
 
-原则：不复制上游内部对象图，只使用上游已发布制品的公开 API；上游的行为以真实制品在设备上的观测为准，
-不以注释或文档推断。**版本统一为 1.2.0**，由家族 BOM `meguviz-bom:1.2.0`（公开仓库 MeguvizBom，尚未发布到 Central）对齐；上游候选的精确 SHA-256
-随各库的本地构建而变，不记录在本仓库。
-候选重发后字节会变，**不要把任何具体 SHA 写进文档当作不可变事实**；Central 上已发布的 1.0.0 不在此列。
+设计原则：不复制上游内部对象图，仅调用上游公开 API。`meguviz-drawable-compose`、`meguviz-drawable-meguviz-android` 与 `meguviz-drawable-meguviz-ui` 已随基础库统一发布至 Maven Central `1.2.0`，并由家族 BOM `io.github.jichuo1.meguviz:meguviz-bom:1.2.0` 管理版本；`meguviz-drawable-lumen` 暂未进入 Central，保留源码构建。
 
-## 制品一览
+## 制品一览与发布口径
 
-| 制品 | 上游 | minSdk | 语言 | 进入 Central 包（1.2.0） |
-|---|---|---|---|---|
-| `meguviz-drawable-compose` | Compose BOM 2026.09.00（运行时、ui、ui-graphics 解析为 1.12.1），Kotlin 2.4.21 | 23 | Kotlin | 是 |
-| `meguviz-drawable-meguviz-android` | `meguviz-android-runtime` 1.2.0（含共享唤醒停摆修复，尚未发布） | 27 | Java | 是，须等 runtime 1.2.0 先发布 |
-| `meguviz-drawable-meguviz-ui` | `meguviz-ui-core` 1.2.0（尚未发布） | 27 | Kotlin | 是，须等 ui-core 1.2.0 先发布 |
-| `meguviz-drawable-lumen` | `lumen-engine` 1.5.5（JitPack 坐标） | 27 | Java | 否 |
+| 制品 | 上游依赖 | minSdk | 语言 | Central `1.2.0` 状态 |
+| --- | --- | --- | --- | --- |
+| `meguviz-drawable-compose` | Compose BOM `2026.09.00`（`runtime`、`ui`、`ui-graphics`），Kotlin `2.4.21` | `23` | Kotlin | 已发布（纳入 `meguviz-bom:1.2.0`） |
+| `meguviz-drawable-meguviz-android` | `meguviz-android-runtime:1.2.0`（含共享唤醒停摆修复） | `27` | Java | 已发布（纳入 `meguviz-bom:1.2.0`） |
+| `meguviz-drawable-meguviz-ui` | `meguviz-ui-core:1.2.0` | `27` | Kotlin | 已发布（纳入 `meguviz-bom:1.2.0`） |
+| `meguviz-drawable-lumen` | 仓库 `libs.versions.toml` 当前固定 JitPack `lumen-engine:1.5.5`；`Lumen` `1.6.2` 亦已独立上线 Central | `27` | Java | **未入 Central（仅源码/本地构建）** |
 
-Compose、MeguvizAndroid、MeguvizUI 三个桥只依赖已发布的 `meguviz-drawable-android:1.0.0`（Central 上）；
-其中 MeguvizAndroid 桥另依赖 `meguviz-android-runtime` 1.2.0、MeguvizUI 桥另依赖 `meguviz-ui-core` 1.2.0，它们上 Central 之前对应的桥既不能在默认仓库下解析，也不能发布；
-上传前用 `-Pmeguviz.againstPublished=true` 针对已发布字节再构建并测试一次。
+> **说明**：
+> - `meguviz-android-runtime:1.2.0`、`meguviz-ui-core:1.2.0`、`meguviz-drawable-core:1.2.0`、`meguviz-drawable-android:1.2.0`、上述三座桥接制品与 `meguviz-bom:1.2.0` 现均已发布至 Maven Central；生产消费请以 Central 实际字节与哈希为准（不要将历史本地候选的临时 SHA 当作不可变发布哈希）。
+> - `meguviz-drawable-lumen` 因仓库构建仍钉住 JitPack `lumen-engine:1.5.5`（Central 制品不允许依赖外部 JitPack 坐标）且依赖 `core 1.2.0` 新增的 `BindingScope.claim`，暂未进入 `1.2.0` Central 发布包；需要源码构建时请使用 `-Pmeguviz.profile=bridges`。
 
-Lumen 桥暂不进 Central 包：它用的是 JitPack 上的 `lumen-engine` 1.5.5，Central 上的制品不应依赖 Central 用户无法解析的坐标
-（MeguvizUI 对它自己的 Lumen 桥采取同样的做法）。Lumen 自 2026-10-30 起也在 Central 发布（`io.github.jichuo1:lumen-engine`，目前只有 1.6.1），
-但 1.6.1 的 AAR 元数据要求消费者用 compileSdk 37.2 编译，本桥用 37.0，换成它会在 `checkAarMetadata` 失败；修复在未发布的 Lumen 1.6.2。
-该桥仍可从本地 staging 仓库构建和使用，待 Lumen 1.6.2 上 Central 后再纳入。
+## Compose 桥（MD-043）
 
-上游字节：
+`RecipePainter` 继承 `Painter`，渲染仍走 `RecipeDrawable`，Compose 端不引入第二套渲染器；`rememberRecipePainter` 负责按组合作用域缓存。
 
-| 制品 | 版本 | 校验来源 |
-|---|---|---|
-| `lumen-engine` | 1.5.5（JitPack，已发布） | JitPack 制品自身 |
-| `meguviz-android-runtime` / `meguviz-android-window` / `meguviz-android-lifecycle` | 1.2.0（本地候选） | MeguvizAndroid 的本地构建 |
-| `meguviz-ui-core` / `meguviz-ui-widgets` | 1.2.0（本地候选） | MeguvizUI 的本地构建 |
-| `meguviz-drawable-core` | 1.2.0（本地候选） | 本仓库的 `build/staging-maven` |
-| `meguviz-bom` | 1.2.0（MeguvizBom 本地构建，platform） | MeguvizBom 的 `./gradlew verifyBom` |
+| 输入变化 | 处理方式 | 依据 |
+| --- | --- | --- |
+| `recipe`（按值）、`density`、`mirrorInRtl` | 重建新 `RecipePainter`，旧实例在组合遗忘时自动 `close()` | `RecipeDrawable` 固定配方与密度 |
+| `state`（`DrawableState`） | 原地更新同一个 `RecipePainter`，外观未变则不触发重绘 | 设备合同验证切换前后实例不变 |
+| 尺寸（`Size`） | 绘制时四舍五入为整数像素边界 | 后端基于整数 `Rect` 运算 |
+| 布局方向 | 仅当 `mirrorInRtl == true` 且为 RTL 时水平翻转绘制，不进入缓存键 | 配方本身与方向无关 |
+| `alpha`、`ColorFilter` | `applyAlpha` / `applyColorFilter` 直接转发至 drawable，不额外触发二次重绘 | 同值守卫避免多余 `invalidate` |
 
-上述 1.2.0 全部由本地 BOM 对齐，均未发布到 Maven Central。候选每次重发字节都会变化，精确 SHA-256 只以
-`checksums.sha256` 为准；发布到 Central 后须与 Central 字节重新核对。`meguviz-ref-core:1.2.0` 与
-`meguviz-drawable-android:1.2.0` 本地仍无候选字节，依赖它们的桥与 fixture 还不能解析。
+离开组合时 `close()` 会移除 drawable callback 并将可见性设为 `false`，之后绘制为空操作并忽略迟到的状态赋值。纯 View 工程引入 `meguviz-drawable-android` 时不会传递引入任何 Compose 或 Kotlin 依赖。
 
-## Compose（MD-043）
+## MeguvizAndroid 桥（MD-044，运行时部分）
 
-`RecipePainter` 是 `Painter`，渲染仍走 `RecipeDrawable`，Compose 不引入第二套渲染。`rememberRecipePainter` 负责缓存。
+`MeguvizBinding` 将 `BindingScope` 接入 MeguvizAndroid 的三大权威组件，不自建线程、Handler 或帧回调。
 
-| 输入变化 | 处理 | 依据 |
-|---|---|---|
-| recipe（按值）、density、`mirrorInRtl` | 换一个新 painter，旧的在 composition 遗忘时释放 | `RecipeDrawable` 固定 recipe 与 density |
-| 状态（`DrawableState`） | 更新同一个 painter；外观不变则不重绘 | 设备合同：状态切换前后 painter 同一实例 |
-| 尺寸 | 绘制时设为 bounds（四舍五入到整数像素） | 后端使用整数 bounds |
-| 布局方向 | 仅在 `mirrorInRtl` 时于 RTL 下水平翻转绘制；不进入缓存键 | recipe 本身与方向无关 |
-| alpha、ColorFilter | `applyAlpha`/`applyColorFilter` 转给 drawable，且不触发二次重绘 | 评审发现并修复 |
+仅在主线程提交且不注册自定义 provider 注册表的宿主，可使用两参便捷入口 `MeguvizBinding.create(lifecycle, resources)`（内部等价于传入 `null` 邮箱、恒为 `0` 修订号的 `RegistrySource` 及 `ownerEpoch = 0`；传入 `ViewScope` 时写作 `MeguvizBinding.create(scope.lifecycle(), scope.resources().state())`）。若需后台线程异步准备并在下一帧回主线程安装，使用五参 `create(lifecycle, resources, mailbox, registry, ownerEpoch)` 并调用 `post(...)`。
 
-离开 composition 时 painter `close()`：清除 drawable 回调并置为不可见；之后绘制是空操作，状态赋值被忽略。
-普通 View 依赖图不引入 Compose：`meguviz-drawable-android` 的 POM 不含 Compose。
+| 上游权威 | 采用字段 | 映射对象 |
+| --- | --- | --- |
+| `ResourceState.dependencies(ALL)` | 两个 `EpochDomain` 的 `epoch()` 之和 | `BindingEnvironment.resourceRevision`（单调递增，任何失效均改变修订号） |
+| `ResourceState.snapshot().densityDpi` | `densityDpi / 160f` | `density()`，供 `RecipeDrawable` 使用 |
+| 调用方 `RegistrySource` | `revision()` | `BindingEnvironment.registryRevision` |
+| `LifecycleScope.isActive()` | `sync()` 对齐 | 不活跃则 `suspend`，恢复则 `resume` |
+| `LifecycleScope.lease(ALL, 资源域)` / `WorkToken` | 每次请求关联一个租约 | `commit`/`post` 需同时通过 `WorkToken` 与 `BindingScope` 的 `RequestStamp` 双重校验 |
+| `LifecycleScope.own(Registration)` | 生命周期关闭时级联关闭桥与 `BindingScope` | 仅在槽位仍为本库所有时清除 |
+| `BoundedMailbox.offerState` | 按 `key` 分配 `Slot` | `post` 仅保留最新项；被替换/拒绝/丢弃时在对应线程执行线程安全的 `releaser` |
 
-## MeguvizAndroid（MD-044，运行时部分）
+**与上游的有意差异**：`LifecycleScope.commit` 回调若抛异常会关闭整个 `LifecycleScope`，`MeguvizBinding.commit` 在回调内捕获后先释放结果再重抛，避免单个绑定失败拖垮同属该窗口的其他绑定；`post` 中若传入了 `Listener`，异常转交 `Listener.onFailure` 而不关闭共享邮箱。此外，View 分离使 `attach` 代次变化，令牌立即失效并返回 `STALE`；仅 `setStarted(false)` 等不改代次的暂停状态返回 `INACTIVE`。
 
-`MeguvizBinding` 把一个 `BindingScope` 接到三个上游权威，不新增线程、Handler 或帧回调。
+## MeguvizUI 桥（MD-044，属性所有权部分）
 
-只在所有者线程提交、也没有 provider 注册表的宿主可以用两参形式（未发布）：`MeguvizBinding.create(lifecycle, resources)`，
-它就是 `create(lifecycle, resources, null, registry, 0)` 配一个修订号恒为 0 的注册表。没有邮箱，所以 `post` 仍被拒绝；
-attach、rebind、资源与主题失效照常使请求过期，因为它们来自传入的 `lifecycle` 与 `resources`。手上是 MeguvizAndroid 的
-`ViewScope` 时写作 `MeguvizBinding.create(scope.lifecycle(), scope.resources().state())`。宿主合同
-`MeguvizBindingTest.shortCreateIsTheFullFormWithNoMailboxAConstantRegistryAndEpochZero` 把两种写法并排跑同一组断言。
+`UiSession.bindRecipeBackground(ref)` 返回 `RecipeBackground`，以 `MeguvizUI` 属性机制管理 View 背景（默认属性 ID `"background"`，`PropertyOwnership.EXCLUSIVE`、可合并、按值判等、资源敏感）。`MeguvizUI` 负责帧调度与作用域失效时机，本模块决定安装行为：
 
-| 上游 | 采用 | 对应 |
-|---|---|---|
-| `ResourceState.dependencies(ALL)` 的 `EpochDomain.stamp().epoch()` | 两个代次之和 | `BindingEnvironment.resourceRevision`（只增不减，任何失效都会改变它） |
-| `ResourceState.snapshot().densityDpi` | `/ 160` | `density()`，供 `RecipeDrawable` |
-| 调用方提供的 `RegistrySource` | 修订号 | `BindingEnvironment.registryRevision` |
-| `LifecycleScope.isActive()` | 对齐方式 | `sync()`：不活跃则 `suspend`，恢复则 `resume`（上游没有状态变化回调，所以按需对齐） |
-| `LifecycleScope.lease(ALL, 资源域)` / `WorkToken` | 每个请求一个租约 | 提交需要租约 token 仍当前、生命周期活跃，且 `BindingScope` 的 stamp 也有效，两道门都过才安装 |
-| `LifecycleScope.own(Registration)` | 生命周期关闭时关闭桥与其 scope | 槽位仅在仍为本库所有时被清除 |
-| `BoundedMailbox.offerState`（每个 key 一个 slot） | 工作线程到所有者线程的单调度 | `post`：最新者胜，被替换/拒绝/丢弃的结果由 releaser 释放（可能发生在投递线程，须线程安全） |
+- 等值配方由属性绑定跳过；调用 `invalidate()` 后若配方与密度均未变，仍保留已安装的 `RecipeDrawable`。
+- 当 View 的 `densityDpi` 变化时，即使配方值相等也不再跳过，下次提交会按新密度重建 drawable。
+- 宿主在外部覆盖背景后，`isOwned` 立即变为 `false`，后续写入不会覆盖宿主背景；调用 `reclaim()` 会同时清掉绑定等值缓存，使随后提交同一配方时也能正常收回所有权。
+- 与 Lumen 的 `reserveProperties("background")` 或其他绑定重复声明同一属性 ID 时，由 `MeguvizUI` 注册表显式拒绝冲突。
+- View 释放、节点 `rebind` 或会话关闭时自动关闭绑定，且仅在当前背景仍是本绑定安装的实例时将其清除。
 
-与上游的有意差异：`LifecycleScope.commit` 的回调抛异常会关闭整个生命周期；桥在回调内捕获，释放结果后在调用方重新抛出，
-不让一个安装失败关闭同一所有者的其他绑定。邮箱的 `action` 抛异常同样会让邮箱失败关闭，所以 `post` 把异常交给 `Listener`。
+## Lumen 桥（MD-045，仅源码构建）
 
-观测到的上游事实（设备合同依赖）：分离导致 attach 代次变化，令牌立即失效，提交返回 STALE 而不是 INACTIVE；
-只有停止（`setStarted(false)`）这类不改变代次的情况才返回 INACTIVE。
+`LumenSurfaceBridge` 仅接管 `BindingScope.claim(key)` 独占登记，材质、采样与动画决策仍由 Lumen 自身控制。通过真实会话探针（`LumenProbe`）观测到的核心行为如下：
 
-## Lumen（MD-045）
+| 实际观测行为 | 桥接层处理方式 |
+| --- | --- |
+| `bind` 将 View 背景替换为 Lumen `SurfaceDrawable`，`update` 复用同一实例 | 首次绑定后记录所装背景引用；`update` 仅在 `options` 变化时透传给 Lumen |
+| 宿主替换背景后，Lumen 原生 `isBound()` 仍可能返回 `true` | 桥接对比 `view.getBackground()` 与已记录实例，立即报告 `LOST` 并停止写入 |
+| View 分离时 Lumen 自动解绑并恢复原背景，重附着后不会自发重绑 | 状态转为 `UNBOUND`；重附着后调用 `refresh()` 以最新选项重绑并返回 `REBOUND` |
+| 对同一 View 再次 `bind` 会顶替旧绑定 | 每次登记独占唯一 `key`，关闭旧登记不会影响后继新登记 |
+| 会话已关闭时直接调用原生 `bind` 可能返回无效绑定而不抛错 | 桥接层在占用 `key` 前检查 `session.isClosed()` 并抛出 `IllegalStateException` |
 
-`LumenSurfaceBridge` 只拥有“登记”，材质、采样和动画决策仍属于 Lumen。以下事实均来自 1.5.5 真实会话的设备探针
-（`LumenProbe`），不是文档推断：
+使用共享 `LumenSurfaceSession` 时请将 `ownsSession` 设为 `false`，桥接关闭时不会暂停或销毁共享会话。
 
-| 观测 | 桥的处理 |
-|---|---|
-| `bind` 把 View 背景换成 Lumen 的 `SurfaceDrawable`；`update` 保持同一 drawable | 首次绑定后记录 View 背景；`update` 仅在选项变化时调用 Lumen |
-| 宿主替换背景后 `isBound` 仍为 true | 登记比较 View 当前背景与记录值，报告 `LOST`，不再写入；关闭时 Lumen 不会覆盖宿主的 drawable |
-| 分离时 Lumen 解绑并恢复原背景，重新附着不会自动重绑 | 状态为 `UNBOUND`；`refresh()` 在重新附着后用最新选项重新绑定（`REBOUND`） |
-| 对同一 View 再次 `bind` 使旧绑定失效，关闭旧绑定不影响新绑定 | 每个登记只持有一个绑定 |
-| 会话关闭后 `bind` 不抛异常、返回无效绑定 | 桥在占用 key 之前抛 `IllegalStateException` |
+## 适用范围与验证说明
 
-所有权：登记通过 `BindingScope.claim(key)` 独占属性 key（该 API 为此新增，也可用于其他自管属性的所有者），
-与同 scope 的配方槽位或第二个登记互斥。共享会话不会被桥暂停或关闭，只有声明 `ownsSession` 才可以。
-
-`claim` 只存在于未发布的 core 1.2.0，所以 Lumen 桥显式依赖 `meguviz-drawable-core`；已发布的 core 1.0.0 没有它。
-
-没有复用 `lumen-controls` 或 `LiquidChoiceDrawable`：计划要求先读取实际解析的 AAR 的公开 API 并验证，
-当前解析到的 `lumen-engine`/`lumen-motion` 不含 controls 制品；BIL 本地副本的删除仍然受阻，本桥不改变这一点。
-
-## MeguvizUI（MD-044，属性所有权部分）
-
-`UiSession.bindRecipeBackground(ref)` 返回 `RecipeBackground`，把配方作为一个 MeguvizUI 属性（id 默认 `background`，
-`EXCLUSIVE`、可合并、按值判等、对资源敏感）。MeguvizUI 决定何时写（帧调度、合并、attach/rebind/主题/资源代次令牌），
-本库决定写什么：
-
-- 相等的配方由属性绑定跳过；`invalidate()` 后重写同一配方与密度时保留已安装的 drawable，不再新建。
-- View 密度与上次写入不同时不再按值跳过：下一次提交即使配方相等也会写入，并按新密度重建 drawable。
-- 宿主替换背景后 `isOwned` 立即为 false，后续写入不覆盖宿主的 drawable；`reclaim()` 显式夺回，并清掉绑定的等值缓存，
-  所以夺回后重新提交宿主接管期间的同一配方也会生效。
-- 与 Lumen 的 `reserveProperties("background")` 或另一个绑定冲突时，两种顺序都由 MeguvizUI 自己的注册表拒绝。
-- View 释放、节点 `rebind` 或会话关闭会关闭绑定，并仅在背景仍是本绑定安装的那个时清除它。
-
-## 验证范围
-
-- 宿主 JVM：`CoreContractTest` 20,235 项（含新增的属性占用 `claim`）；`MeguvizBindingTest` 15 项，使用真实 MeguvizAndroid 运行时，
-  以手动驱动的所有者线程和帧源。
-- API 34 模拟器（单台）：Compose 89 项（含硬件窗口 PixelCopy 对照）、MeguvizAndroid 真实平台后端 17 项、Lumen 45 项、
-  MeguvizUI 58 项，另有基础库的 52 项合同与 29 项绑定合同。每个桥都做过一次删除关键逻辑的变异，合同随之失败后已还原。
-- 全部模块 lint 通过；`verify_candidate_licenses.py` 对所有候选通过。
-
-未验证：API 23–26（Compose）与 API 27–33 上的任何桥、真机与硬件差异（本轮物理设备未连接）、
-R8 后行为、独立 consumer 对桥制品的消费（现有 fixture 只覆盖 core 与 android）、`BoundedMailbox` 在真实帧压力下的行为、
-Lumen 在其他版本上的行为（只对 1.5.5 做了探针）。
+- **已验证覆盖**：宿主 JVM 上 `CoreContractTest`（含 `BindingScope.claim`）与 `MeguvizBindingTest` 通过；单台 API 34 模拟器上 Compose（89 项，含硬件窗口 PixelCopy）、MeguvizAndroid 桥（17 项）、MeguvizUI 桥（58 项）、Lumen 1.5.5 桥（45 项）及基础库合同通过，全部模块 Lint 与许可证检查通过。
+- **未覆盖边界**：API 23–26 上的 Compose 桥、API 27–33 上的各桥接模块、真机硬件差异、`R8` 混淆后的桥接消费、独立消费者工程对桥制品的解析、`BoundedMailbox` 真机高压场景，以及除 `1.5.5` 之外其他 Lumen 版本的适配行为，均须在各自目标环境补跑验证。

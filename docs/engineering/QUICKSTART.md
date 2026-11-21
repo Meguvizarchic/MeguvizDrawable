@@ -1,23 +1,19 @@
 # 快速上手
 
-本页代码与两份样例逐字对应，样例被 gate 编译（并在宿主运行）：
+本页 Java 代码片段与以下两份受测样例保持逐字一致：
 
-- 纯 Java 部分：`core/src/test/java/io/github/jichuo1/meguviz/drawable/samples/QuickStartSample.java`，
-  由 `:core:contractTest`（`gradlew check` 的一部分）编译并运行，结果由合同
-  `CoreAdditionalContractTest.quickStartSampleRuns` 断言。
-- Android 部分：`android/src/androidTest/java/io/github/jichuo1/meguviz/drawable/android/samples/AndroidQuickStartSample.java`，
-  由 `:android:assembleDebugAndroidTest` 编译；**只编译、不在设备上运行**。
+- 纯 Java 部分：[`QuickStartSample.java`](../../core/src/test/java/io/github/jichuo1/meguviz/drawable/samples/QuickStartSample.java)，由 `:core:contractTest`（`gradlew check`）编译并运行，结果由 `CoreAdditionalContractTest.quickStartSampleRuns` 断言。
+- Android 部分：[`AndroidQuickStartSample.java`](../../android/src/androidTest/java/io/github/jichuo1/meguviz/drawable/android/samples/AndroidQuickStartSample.java)，由 `:android:assembleDebugAndroidTest` 随 Android 构建编译校验（不直接作为设备用例执行）。
 
-改了这里的代码就要同步改样例，反之亦然。
+同步修改文档代码与样例文件，确保示例与当前 API 一致。
 
-## 1 分钟
+## 1 分钟接入
 
-坐标（Central 上只有 1.0.0；本页用到的 `DrawingRecipe.of`/`withStroke`/`withMetrics`、`RecipeDrawable.forView` 与 `FlightCache` 属于未发布的 1.2.0，
-在仓库里用 `-Pmeguviz.profile=android :core:publishCandidatePublicationToStagingRepository` 产出到 `build/staging-maven`）：
+`meguviz-drawable-core` 与 `meguviz-drawable-android` `1.2.0` 均已发布至 Maven Central（可通过家族 BOM `io.github.jichuo1.meguviz:meguviz-bom:1.2.0` 对齐版本，或直接声明 `1.2.0`）。本页用到的 `DrawingRecipe.of`、`withStroke`、`withMetrics`、`RecipeDrawable.forView` 与 `FlightCache` 均已包含在 `1.2.0` 制品中：
 
 ```kotlin
 dependencies {
-    implementation("io.github.jichuo1.meguviz:meguviz-drawable-android:1.0.0") // 已带 core
+    implementation("io.github.jichuo1.meguviz:meguviz-drawable-android:1.2.0") // 已传递包含 core
 }
 ```
 
@@ -29,18 +25,14 @@ DrawingRecipe card = DrawingRecipe.of(ShapeSpec.roundRect(Length.dp(16)), FillSp
 view.setBackground(RecipeDrawable.forView(view, card));
 ```
 
-`RecipeDrawable.forView(view, recipe)` 就是 `new RecipeDrawable(recipe, view.getResources().getDisplayMetrics().density)`：
-密度取自这个 View 自己的资源（不是 `Resources.getSystem()` 或 Application 的密度；View 所在的显示器或其 Context 覆盖的 Configuration 不同时，这几个值可以不一样），
-只在调用时读一次，不安装、不缓存任何东西；密度变化后仍需新建实例。消费已发布的 1.0.0 时没有这个方法，用构造器。
+`RecipeDrawable.forView(view, recipe)` 等价于 `new RecipeDrawable(recipe, view.getResources().getDisplayMetrics().density)`：在调用时读取一次 View 自身资源的密度（与 `Resources.getSystem()` 或 Application 密度在多屏/覆盖配置下可能不同），不安装监听器也不缓存实例；密度变化后仍需新建实例。早期 `1.0.0` 版本不包含该便捷工厂方法，须直接使用构造器。
 
-Kotlin 里写法相同（`DrawingRecipe.of(...).withStroke(...)`）；这些都是普通静态/实例方法，没有额外的包装对象：
-`of` 只分配返回的那个 recipe（默认 metrics 是类内私有常量；公开的 `LayoutMetrics.unspecified()` 每次返回新实例，只保证值等价），`withStroke`/`withMetrics` 各分配一个新 recipe，
-`of()` 只分配一个 recipe；手写四参构造器若显式调用 `LayoutMetrics.unspecified()` 会多分配一个 metrics（r3 恢复 1.0.0 的实例语义后为 96 B），两者只在**值**上等价、分配量不同（宿主 JVM 分配探针，见 [性能指南](PERFORMANCE_GUIDE.md) 2026-11-08 节）。
+Kotlin 调用写法相同（`DrawingRecipe.of(...).withStroke(...)`）。`of` 使用私有默认 `LayoutMetrics` 常量，只分配返回的 recipe 对象；而直接调用四参构造器配合公开 `LayoutMetrics.unspecified()` 会额外分配一个 `LayoutMetrics` 实例（宿主 JVM 分配探针测得 `32 B` vs `96 B`，详见 [性能指南](PERFORMANCE_GUIDE.md) 2026-11-08 节）。
 
-## 配方（recipe）
+## 配方（Recipe）规则
 
-- recipe 不可变、按值比较，可以在线程间、在多个 Drawable 之间共享；**Drawable 不能共享**，每个所有者一个。
-- 状态色按顺序首个匹配（不做 AOSP 的第二遍通配），没有规则匹配时用 fallback：
+- `DrawingRecipe` 不可变且按值比较，可在线程间及多个 `Drawable` 间共享；**`RecipeDrawable` 不可共享**，每个宿主 View 独占一个实例。
+- 状态色按规则列表顺序首个匹配（不做 AOSP `StateListDrawable` 的二次通配匹配），未命中时使用 `fallbackColor`：
 
 ```java
 StateColorList colors = new StateColorList(
@@ -50,12 +42,12 @@ return DrawingRecipe.of(ShapeSpec.roundRect(Length.dp(12)), FillSpec.statefulSol
         .withStroke(new StrokeSpec(Length.dp(1), 0x33000000));
 ```
 
-- 渐变：`FillSpec.linearGradient(startX, startY, endX, endY, colors, stops)`，端点是相对 bounds 的 [0,1] 坐标。
-- 尺寸：`Length.px`/`dp`/`boundsFraction(value, axis)`；密度在 `RecipeDrawable` 构造时固定，密度变化要新建实例。
+- 线性渐变：`FillSpec.linearGradient(startX, startY, endX, endY, colors, stops)`，端点采用相对边界的 `[0, 1]` 坐标。
+- 尺寸单位：`Length.px`、`Length.dp` 或 `Length.boundsFraction(value, axis)`；`dp` 在构造 `RecipeDrawable` 时按当前密度换算。
 
-## 共享的昂贵结果：FlightCache
+## 共享缓存：`FlightCache`
 
-同一个键同时只生产一次、在所有者线程交付、条目/权重/飞行数都有上限。绘制路径只用 `peek`：
+相同键在同一时间只由工作线程生产一次，并在所有者线程交付结果；条目数、总权重与并行飞行数均受上限约束，绘制路径仅调用 `peek` 只读查询：
 
 ```java
 FlightCache.<String, Bitmap>builder(workers, new MainThreadPoster())
@@ -66,33 +58,32 @@ FlightCache.<String, Bitmap>builder(workers, new MainThreadPoster())
         .build();
 ```
 
-`request` 返回 `READY` 时**不会回调**，必须当场用 `ticket.value()`；`STARTED`/`JOINED` 会在所有者线程回调一次（除非取消、过期或关闭）。
-完整规则见 [FLIGHT_CACHE.md](FLIGHT_CACHE.md)。
+`request` 返回 `READY` 时**不会回调 `onReady`**，必须当场读取 `ticket.value()`；`STARTED` 或 `JOINED` 会在所有者线程回调一次（除非取消、代次过期或缓存关闭）。完整语义见 [FLIGHT_CACHE.md](FLIGHT_CACHE.md)。
 
-## 迁移
+## `1.0.0` 至 `1.2.0` 便捷 API 迁移
 
-| 旧写法 | 新写法（1.2.0，未发布） | 说明 |
-|---|---|---|
-| `new DrawingRecipe(shape, fill, null, LayoutMetrics.unspecified())` | `DrawingRecipe.of(shape, fill)` | 结果 `equals` 相同 |
+| 旧写法（`1.0.0`） | 新写法（`1.2.0`） | 说明 |
+| --- | --- | --- |
+| `new DrawingRecipe(shape, fill, null, LayoutMetrics.unspecified())` | `DrawingRecipe.of(shape, fill)` | 结果按 `equals` 相等 |
 | `new DrawingRecipe(r.shape(), r.fill(), stroke, r.metrics())` | `r.withStroke(stroke)` | 原 recipe 不变 |
 | `new DrawingRecipe(r.shape(), r.fill(), r.stroke(), metrics)` | `r.withMetrics(metrics)` | 原 recipe 不变 |
-| `new RecipeDrawable(recipe, view.getResources().getDisplayMetrics().density)` | `RecipeDrawable.forView(view, recipe)` | 同一密度来源，逐像素相同（设备合同） |
+| `new RecipeDrawable(recipe, view.getResources().getDisplayMetrics().density)` | `RecipeDrawable.forView(view, recipe)` | 同一密度来源，逐像素一致 |
 
-旧构造器保留，不弃用。
+四参构造器与两参 `RecipeDrawable` 构造器继续保留，不会弃用。
 
-## 排错
+## 常见问题排查
 
 | 现象 | 原因与处理 |
-|---|---|
-| 构造 `RecipeDrawable` 抛 “optical insets are not supported” | 该后端不支持非零光学内边距；去掉 `LayoutMetrics` 的 optical inset |
-| `setBounds` 抛 “stroke is too wide” / “collapse at Canvas float precision” | 描边宽度 ≥ 宽或高，或 bounds 太大导致 float 精度塌缩；准备阶段就拒绝，不画错图 |
-| 设置了 tint 或 `setColorFilter` 后 `getConstantState()` 为 null | 有意保守：任意滤镜与 tint 无法安全重建 |
-| `FlightCache.request` 返回 `READY` 却一直没收到 `onReady` | 命中路径不回调，见上文 |
-| 有 elevation 的 View 没有阴影 / `clipToOutline` 无效 | `getOutline` 当前有意返回空轮廓（alpha 0），见 [联合审计](AUDIT_JOINT_R1.md) D-05 |
-| 单个值的权重大于 `maxWeight` | r3 起**不进缓存**：值仍交付给订阅者与 `computeNow` 调用者，但不发 `CAPACITY` 淘汰、不计 `produced`、不加 `version()`；`peek` 仍为 null。需要观察每次交付请用 `onReady`，不要靠 `version()` 轮询 |
+| --- | --- |
+| 构造 `RecipeDrawable` 抛 `optical insets are not supported` | 当前 Canvas 后端不支持非零光学内边距，请保留 `opticalInset*` 为 `0` |
+| `setBounds` 抛 `stroke is too wide` 或 `collapse at Canvas float precision` | 描边宽度大于等于边界宽/高，或坐标在 float 精度下塌缩，需调整描边或尺寸 |
+| 设置 tint 或 `setColorFilter` 后 `getConstantState()` 返回 `null` | 有意保守处理：任意外部滤镜与 tint 无法安全重建 |
+| `FlightCache.request` 返回 `READY` 却未触发 `onReady` | 命中路径不走异步回调，见上文直接读取 `ticket.value()` |
+| 设置 `elevation` 后无阴影或 `clipToOutline` 不生效 | `getOutline` 当前有意返回空轮廓（alpha `0`），见 [联合审计](AUDIT_JOINT_R1.md) D-05 |
+| 单条结果权重大于 `maxWeight` | `1.2.0` 起超重值只直接交付而不入缓存、不触发 `CAPACITY` 淘汰、不计 `produced` 也不递增 `version()`，`peek` 仍为 `null`；需观察每次交付请使用 `onReady` |
 
-## 下一步
+## 延伸阅读
 
-- 性能约束与测量协议：[PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md)
-- 可选桥（Compose、MeguvizAndroid、MeguvizUI、Lumen）：[BRIDGES.md](BRIDGES.md)
-- 状态表预编译：[STATE_MATCHER_PREPARED.md](STATE_MATCHER_PREPARED.md)
+- 性能协议与测量记录：[PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md)
+- 可选桥接模块（Compose、MeguvizAndroid、MeguvizUI、Lumen）：[BRIDGES.md](BRIDGES.md)
+- 状态表预编译与共享缓存：[STATE_MATCHER_PREPARED.md](STATE_MATCHER_PREPARED.md)

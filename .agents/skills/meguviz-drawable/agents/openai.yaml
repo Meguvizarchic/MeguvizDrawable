@@ -1,0 +1,4 @@
+interface:
+  display_name: "MeguvizDrawable 接入与迁移"
+  short_description: "接入跨端绘制配方、单飞缓存与视图背景所有权绑定"
+  default_prompt: "请使用 $meguviz-drawable 检查当前工程，制定最小接入或迁移方案，完成代码适配并运行验证。"

@@ -1,19 +1,30 @@
 # 工程状态
 
-更新时间：2026-11-09（发布状态以本段和 RELEASE.md 为准；下表与设备验证段是 2026-10-28 的快照）。
+## 当前发布口径
 
-当前阶段：核心与 Android 基线功能验证和性能试验进行中。`meguviz-drawable-core` / `-android` 的 1.0.0 已发布到 Maven Central 且不可变；1.1.0 从未发布、已被取代；当前 1.2.0 尚未发布到 Central，跨库联调用家族 BOM `meguviz-bom:1.2.0`（源码在公开仓库 MeguvizBom，同样尚未发布到 Central）。详见 RELEASE.md。
+- `meguviz-drawable-core`、`meguviz-drawable-android`、`meguviz-drawable-compose`、`meguviz-drawable-meguviz-android` 与 `meguviz-drawable-meguviz-ui` 的 `1.2.0` 制品及家族 BOM `io.github.jichuo1.meguviz:meguviz-bom:1.2.0` 均已发布至 Maven Central（`1.0.0` core/android 保持不可变历史版本，`1.1.0` 从未发布且已被 `1.2.0` 取代）。
+- `meguviz-drawable-lumen`（依赖 `BindingScope.claim` 与 `lumen-engine`）暂未进入 Central，仅支持从源码或本地 staging 构建，详见 [RELEASE.md](RELEASE.md) 与 [BRIDGES.md](BRIDGES.md)。
 
-| 门禁 | 状态 | 主要缺口 |
-|---|---|---|
-| G0 基线 | IN_PROGRESS | 依赖制品、运行轨迹和实验协议尚未完整核验 |
-| G1 迁移 | IN_PROGRESS | BIL PR 已合入 `Advanced`；隔离候选的图、R8、debug APK、测试/lint 和控件对照已验证；固定签名 release APK、真实页面与 Hook 仍缺证据 |
-| G2 纯 JVM | IN_PROGRESS | 完整模型、独立参考、扩展与缓存合同尚未齐备 |
-| G3 Android 和绑定 | IN_PROGRESS | `dev.3` 静态快照/owner 协议有证据；`dev.4` 子项包装器通过 API 21/22/34 模拟器合同，真机及完整生命周期尚未完成 |
-| G4 独立消费者 | IN_PROGRESS | 独立 consumer、实验性 provider 和有限旧字节码对照已推进；完整扩展与兼容性证据仍未完成 |
-| G5 发布验证 | IN_PROGRESS | 独立复现页性能确认未证明预注册收益；真实 BIL 页面、更多设备与公开制品回读仍待验证 |
-| G6 高级专项 | NOT_STARTED | 前置依赖、实验和设备验证尚未完成 |
+## 历史工程门禁快照（2026-10-28）
 
-扩展核心合同在宿主 JVM 通过 20,058 项检查；API 21/22 模拟器对提交 `9965c3c` 的 `dev.3` 各通过 52 项软件、22 项快照协议及独立 provider 合同，API 37 真机也通过相同软件及协议合同。API 37 硬件窗口对照了四个限定场景。独立 provider 只覆盖实验性多边形能力。该段为 2026-10-28 的历史快照；绑定所有权与 provider 能力/回退实现已在 2026-11-08 的 `perf/joint-r1` 分支上提交，并形成了 1.2.0 本地候选制品（见 RELEASE.md）。另有 Compose、MeguvizAndroid、MeguvizUI、Lumen 四个可选桥接制品，仅在宿主 JVM 与单台 API 34 模拟器上验证，见 [BRIDGES.md](BRIDGES.md)；G4 的“可选适配”条目不因此通过。另有共享单飞缓存 `FlightCache`（core/android 1.2.0，Central 未发布；1.1.0 从未发布），见 [FLIGHT_CACHE.md](FLIGHT_CACHE.md)。覆盖范围与性能试验见 [VERIFICATION.md](VERIFICATION.md)，这些结果不足以证明任何完整门禁通过。2026-11-08 起性能原始 CSV 已入库（`docs/engineering/evidence/runs/`）；更早的原始输入与机器相关日志仍只保留在本地。
+下表记录 2026-10-28 阶段性门禁盘点状态；2026-11 以来已完成共享单飞缓存 `FlightCache`、状态表缓存 `StateMatcherCache`、四座可选桥接实现与 `1.2.0` 发布打包，后续演进验证记录见 [VERIFICATION.md](VERIFICATION.md)。
 
-下一步：扩充 API 版本与硬件路径覆盖，完善状态、几何和生命周期对照，核验生产依赖图并完成独立制品消费者。性能候选须包含真实工作负载和准备成本后再裁决。
+| 门禁 | 2026-10-28 快照状态 | 主要未覆盖项 |
+| --- | --- | --- |
+| G0 基线 | `IN_PROGRESS` | 依赖制品、运行轨迹和实验协议尚未完整核验 |
+| G1 迁移 | `IN_PROGRESS` | 隔离候选依赖图、R8、debug APK 与控件对照已验证；固定签名 release APK、真实页面与 Hook 仍缺证据 |
+| G2 纯 JVM | `IN_PROGRESS` | 完整模型、独立参考与缓存全矩阵持续补齐 |
+| G3 Android 与绑定 | `IN_PROGRESS` | API 21/22/34/37 模拟器及部分真机合同已推进，真机全矩阵待补齐 |
+| G4 独立消费者 | `IN_PROGRESS` | 独立 consumer/provider 与桥接制品的完整独立消费验证待补齐 |
+| G5 发布验证 | `IN_PROGRESS` | 真实业务页面与多设备硬件加速对照待验证 |
+| G6 高级专项 | `NOT_STARTED` | 专项渲染能力与净收益验证待启动 |
+
+## 阶段性技术进展摘要
+
+- **核心与 Android**：`CoreContractTest`（及可选 `:core:contractStress`）、`FlightCache`、`StateMatcherCache`、`RecipeDrawable.forView`、Model 哈希缓存与 `BindingScope` 均在宿主 JVM 通过对应合同验证；API 21/22/33/34/37 的部分模拟器与真机合同见 [VERIFICATION.md](VERIFICATION.md)。
+- **桥接模块**：Compose（89 项，含 PixelCopy）、MeguvizAndroid（17 项）、MeguvizUI（58 项）与 Lumen 1.5.5（45 项）已在宿主 JVM 与单台 API 34 模拟器通过合同验证。
+- **原始测量轨迹**：2026-11-08 起的性能探针原始 CSV 已纳入 `docs/engineering/evidence/runs/`；更早日志与本机环境记录仅保留在本地。
+
+## 适用范围与验证说明
+
+- 历史门禁快照与局部设备结果不代表全 API 版本（尤其 API 21–26 的真实真机硬件路径）或全量业务页面的完整回归通过；消费方升级或集成新版本时应结合目标设备执行集成与渲染验收。

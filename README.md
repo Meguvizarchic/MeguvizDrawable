@@ -5,7 +5,7 @@
 
 **Reusable drawing recipes for Android Drawable and Jetpack Compose**
 
-[Maven Central](https://central.sonatype.com/artifact/io.github.jichuo1.meguviz/meguviz-drawable-android) · [Quick start](#create-a-view-background) · [License](LICENSE)
+[Maven Central](https://central.sonatype.com/artifact/io.github.jichuo1.meguviz/meguviz-drawable-android) · [AI Integration & Migration Skill](.agents/skills/meguviz-drawable/SKILL.md) · [Quick start](#create-a-view-background) · [License](LICENSE)
 
 </div>
 
@@ -13,11 +13,13 @@ Define a shape, fill, gradient or stroke as an immutable Java recipe. Use the sa
 
 ## Install
 
-Enable `google()` and `mavenCentral()` in your Gradle repositories. The Android artifact requires `compileSdk` 37 or newer and supports devices from API 21. It includes the recipe model as a dependency.
+Enable `google()` and `mavenCentral()` in your Gradle repositories. The Android artifact requires `compileSdk` 37 or newer and supports devices from API 21. It includes the recipe model as a dependency. All five core and bridge artifacts below are published at `1.2.0` on Maven Central and aligned by `io.github.jichuo1.meguviz:meguviz-bom:1.2.0`.
 
 ```kotlin
 dependencies {
-    implementation("io.github.jichuo1.meguviz:meguviz-drawable-android:1.2.0")
+    implementation(platform("io.github.jichuo1.meguviz:meguviz-bom:1.2.0"))
+    implementation("io.github.jichuo1.meguviz:meguviz-drawable-android")
+    // Or declare the version directly: implementation("io.github.jichuo1.meguviz:meguviz-drawable-android:1.2.0")
 }
 ```
 
@@ -41,14 +43,20 @@ view.setBackground(RecipeDrawable.forView(view, card));
 
 ## Choose a module
 
-The following artifacts use the groupId `io.github.jichuo1.meguviz`.
+The following Central artifacts use the groupId `io.github.jichuo1.meguviz` (`1.2.0`).
 
-| Artifact | Use |
-| --- | --- |
-| `meguviz-drawable-core` | Java recipes and drawing specifications |
-| `meguviz-drawable-android` | Android `Drawable` and Canvas rendering |
-| `meguviz-drawable-compose` | [Compose painter adapter](compose) |
-| `meguviz-drawable-meguviz-android` | [Integration with MeguvizAndroid lifecycle and resources](meguviz-android) |
-| `meguviz-drawable-meguviz-ui` | [Background binding for MeguvizUI](meguviz-ui) |
+| Artifact | Minimum SDK | Use |
+| --- | --- | --- |
+| `meguviz-drawable-core` | JVM 8+ | Java recipes, state matcher cache, `FlightCache` and `BindingScope` |
+| `meguviz-drawable-android` | API 21 | Android `Drawable`, `ViewSlots` and Canvas rendering |
+| `meguviz-drawable-compose` | API 23 | [Compose painter adapter](compose) |
+| `meguviz-drawable-meguviz-android` | API 27 | [Integration with MeguvizAndroid lifecycle and resources](meguviz-android) |
+| `meguviz-drawable-meguviz-ui` | API 27 | [Background binding for MeguvizUI](meguviz-ui) |
 
-See the [Android example](android/src/androidTest/java/io/github/jichuo1/meguviz/drawable/android/samples/AndroidQuickStartSample.java) and [drawing recipe examples](core/src/test/java/io/github/jichuo1/meguviz/drawable/samples/QuickStartSample.java). Released under the [Apache License 2.0](LICENSE).
+An optional [Lumen bridge module](lumen) (`meguviz-drawable-lumen`, API 27) is available for source/local builds (`-Pmeguviz.profile=bridges`) and is not published on Maven Central.
+
+## Docs & Examples
+
+- [AI Integration & Migration Skill](.agents/skills/meguviz-drawable/SKILL.md) — engineering assessment, module selection, API reference and migration guide.
+- [Quickstart](docs/engineering/QUICKSTART.md) · [Bridges](docs/engineering/BRIDGES.md) · [FlightCache](docs/engineering/FLIGHT_CACHE.md) · [Android example](android/src/androidTest/java/io/github/jichuo1/meguviz/drawable/android/samples/AndroidQuickStartSample.java) · [Recipe examples](core/src/test/java/io/github/jichuo1/meguviz/drawable/samples/QuickStartSample.java)
+- Released under the [Apache License 2.0](LICENSE).

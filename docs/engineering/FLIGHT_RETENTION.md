@@ -1,99 +1,49 @@
-# FlightCache 票据保留（retention）快路径
+# FlightCache 票据引用清理设计
 
-状态：进度候选，未发布。范围仅限 `core/.../cache/FlightCache.java` 的票据终态引用清理；公开 API 与单飞语义不变。
-一项关闭行为修正是：关闭前已入投递队列、但尚未开始交付的结果在关闭后丢弃，并计入 `droppedStale`；
-该分支由 `closeBeforeDrainDropsPostedDelivery` 精确断言。其他回调路径与计数条件保持。
-**这是部分保留削减（partial retention reduction）**，不是“已完成
-票据完全不保留 cache”：STARTED/JOINED 票据在存续期仍持有 `owner == cache`，因为 `cancel()` 需要它；
-终态后 `owner` 链仍能把共享 cache 留在内存里。
+本文件记录 `core/.../cache/FlightCache.java`（随 `1.2.0` 发布）在票据终态的强引用清理改动与边界条件。公开 API 与单飞语义保持不变；仅补充“关闭前已入投递队列但尚未交付的结果，在缓存关闭后丢弃并计入 `droppedStale`”（由 `closeBeforeDrainDropsPostedDelivery` 断言）。
 
-## 问题（改动前）
+本设计属于**部分保留削减（partial retention reduction）**：`STARTED` / `JOINED` 票据在存续期仍需通过 `owner` 引用执行 `cancel()`，因此终态后长期持有未丢弃的 `Ticket` 仍可能经 `owner` 链保留共享缓存，调用方在结束观察后仍应及时释放票据引用。
 
-```
-Ticket → Sub → Flight → { producer(用户 Producer), key, task:Runnable }
-                   task 捕获 FlightCache.this → 整个 cache
+## 改动前引用链与内存滞留原因
+
+```text
+Ticket → Sub → Flight → { producer (用户 Producer), key, task: Runnable }
+                                  └── 捕获 FlightCache.this
 Ticket → owner → cache
 ```
 
-- 已完成/已取消票据经 `Sub.flight` 长时保留 producer、key、`task`（→ cache）与 subscriber。
-- `run()` 只把 flight 从 `flights` 移除并 `drain().clear()`；`Sub.flight` 仍指向 flight。
-- `cancel()` 只把 sub 从 `flight.subscribers` 移除；`Sub.flight/subscriber` 原样。
-- `close()` 只清 `flight.subscribers`；Sub 内字段原样。
-- `deliverAll` 中 `owner.post` 失败时只计 STALE，Sub 字段原样。
-- READY / REJECTED_CAPACITY / REJECTED_CLOSED 的 `Ticket` 带 `owner=cache`，但 `subscription=null`，
-  `cancel()` 永假，owner 纯属多余引用。
+改动前存在以下滞留点：`run()` 仅移除 `flights` 映射而不清空 `Sub.flight`；`cancel()` 仅把订阅者移出列表而不清理 `Sub.flight`/`Sub.subscriber`；`close()` 与投递失败路径同理；`READY` / `REJECTED_*` 票据无取消能力却仍持有多余的 `owner` 引用。
 
-## 改动（最小净改进）
+## 清理方案（保持公开 API 不变）
 
-1. READY / REJECTED_* 的 `Ticket` 传 `owner=null`（`cancel()` 先判 `subscription != null`，安全）。
-2. 终态断开 `Sub`：`cancel()`、`deliver()` 的 `finally`、`close()`、`deliverAll` 投递失败时，
-   置 `sub.subscriber=null`、`sub.flight=null`。`deliver` 在锁内读入 `target` 局部变量，回调在锁外
-   执行；不把 callback 移进锁内，不吞 `Error`。
-3. 终态断开 `Flight`：`run()`（含 `state != QUEUED` 与 closed/empty 早退）、REE 回滚、`computeNow`
-   取代、`close()`、`dropOneAbandoned` 置 `flight.producer=null`。`run()` 在锁内把 producer 读入
-   局部再 `produce`，所以 `close()` 清 `flight.producer` 不会影响正在运行的 producer。
-4. `deliver()` 增加 `closed` 判断：close 前已 drain/ post 的投递不在 flight 中，close 遍历不到；
-   现在 deliver 见到 `closed` 就丢弃并计 STALE，兑现“close 后不再回调”的文档承诺。
-5. `request()` 用局部 `task` 提交给 executor：task 赋值在 lock 外，close/computeNow 可能在赋值与
-   `execute` 之间清空 `flight.task`；局部保证 `workers.execute` 永不收到 null。
+1. **`READY` / `REJECTED_*` 票据置空 `owner`**：构造此类票据时传入 `owner = null`（`cancel()` 先检查 `subscription != null`）。
+2. **终态断开 `Sub` 引用**：在 `cancel()`、`deliver()` 的 `finally`、`close()` 及投递失败分支中，于锁内将 `sub.subscriber` 与 `sub.flight` 置为 `null`；`deliver()` 在锁内读取局部 `target` 后在锁外执行回调。
+3. **终态断开 `Flight.producer`**：在 `run()`、`RejectedExecutionException` 回滚、`computeNow` 取代、`close()` 与 `dropOneAbandoned()` 中清空 `flight.producer`（`run()` 已提前在锁内把 `producer` 读入局部变量）。
+4. **`deliver()` 增加 `closed` 校验**：若缓存在投递入队后关闭，执行 `deliver()` 时直接丢弃并计入 `droppedStale`。
+5. **`request()` 使用局部 `task` 提交**：防止锁外赋值后、调用 `workers.execute` 前被 `close()` 或 `computeNow()` 清空 `flight.task` 引发空指针。
 
-### 不清 `flight.task` 的终态
+注：`close()` 与 `computeNow()` 故意不清空 `flight.task`，以免与 `request()` 的锁外提交产生竞态；`ThreadPoolExecutor` 会通过队列移除清理已取消任务，自定义执行器中的已终止任务则由执行器自身队列生命周期决定。
 
-`run()` 正常 DONE 时清 `flight.task`（任务已执行完，安全）。`close()` / `computeNow` **不清**：
-task 赋值在 lock 外，清它会与 `request()` 的 `execute` 竞态；且此时 task 已收集进 `unqueue`，
-ThreadPoolExecutor 会移除，自定义 executor 的队列本就在 cache 控制之外。因此文档与测试只承诺
-`run()`/REE 终态 `task == null`，不承诺所有终态。
+## JMM 可见性与探针证据
 
-## JMM
+- `sub.subscriber`、`sub.flight` 与 `flight.producer` 的全部读写均在 `lock` 监视器保护下完成，具有明确的同步先后序；`flight.task` 保持 `volatile`，由 `Executor.execute` 建立 happens-before。
+- 探针 `benchmark/FlightRetentionProbe.java`（基于对比基线 `9f7aee2` 在 `javac --release 8` 下运行，通过反射检查字段及有界 GC `WeakReference`）测得：
 
-- `sub.subscriber` / `sub.flight`：全部读写在 `lock` 下；`deliver` 在锁内读 `target`，回调在锁外；
-  `release` 在锁下清。测试用同线程 `drain()`/`cancel()` 程序序 + `stats()` 的 monitor 边，反射断言
-  确定性可见，不依赖 GC。
-- `flight.producer`：`run()` 在锁内读入局部；所有写在锁下。`close()` 对 RUNNING flight 清
-  `flight.producer` 不影响局部。
-- `flight.task` 保持 `volatile`；`request()` 赋值是 lock 外 volatile 写，Executor 契约提供
-  happens-before。不新增 `volatile`。
+| 场景 | 改前 `sub.flight/subscriber` | 改前 `producer/task` | 改前 GC 保留 | 改后 `sub.flight/subscriber` | 改后 `producer/task` | 改后 GC 保留 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `started_complete` | 非空 | 非空 | `3/3` | `null` | `null` | `0/3` |
+| `joined_complete` | 非空 | 非空 | `3/3` | `null` | `null` | `0/3` |
+| `cancelled` | 非空 | 非空 | `3/3` | `null` | `null` | `0/3` |
+| `closed` | 非空 | 非空 | `2/2` | `null` | `producer=null` | `0/2` |
+| `poster_refused` | 非空 | 非空 | `3/3` | `null` | `null` | `0/3` |
+| `ready` / `rejected_capacity` | `owner` 非空 | — | — | `owner = null` | — | — |
 
-## 证据（before = 9f7aee2 原 FlightCache，after = 本改动；同一探针二进制）
+改前 `remaining_while_ticket_retained = 14/14`（`violations = 8`），改后 `remaining_while_ticket_retained = 0/14`（`violations = 0`）。
 
-探针 `benchmark/FlightRetentionProbe.java`（`javac --release 8`，反射强引用列 + 保留 ticket 时的
-有界 GC WeakReference）：
+## 残余限制与适用范围说明
 
-| 场景 | before sub.flight/subscriber | before producer/task | before GC 保留 | after sub.flight/subscriber | after producer/task | after GC 保留 |
-|---|---|---|---|---|---|---|
-| started_complete | 非空 | 非空 | 3/3 | null | null | 0/3 |
-| joined_complete | 非空 | 非空 | 3/3 | null | null | 0/3 |
-| cancelled | 非空 | 非空 | 3/3 | null | null | 0/3 |
-| closed | 非空 | 非空 | 2/2（payload） | null | null（task 保留） | 0/2 |
-| poster_refused | 非空 | 非空 | 3/3 | null | null | 0/3 |
-| ready | owner非空 | — | — | owner=null | — | — |
-| rejected_capacity | owner非空 | — | — | owner=null | — | — |
-
-- before：`remaining_while_ticket_retained = 14/14`，`violations = 8`，探针退出码 1。
-- after：`remaining_while_ticket_retained = 0/14`，`violations = 0`，探针退出码 0。
-- 计数语义由既有 `FlightCacheContractTest` 的 `droppedStale`/`delivered`/`cancelledSubscribers` 等
-  断言覆盖，after 全部通过；探针本身不打印计数。
-
-## 测试
-
-- `FlightCacheContractTest.retentionFastPath`（已接线）：完成/取消票据的反射字段断言。
-- `TicketRetentionContractTest`（新文件，main 已接线 `CoreContractTest`）：STARTED/JOINED 完成、
-  取消、close、poster 拒绝、READY/REJECTED owner、computeNow 取代、REE 回滚（含 executor 先 join
-  再拒绝）、close/computeNow 与 execute 的 task 赋值竞态、回调内 reentrant cancel/close、close 前
-  已 post 投递的丢弃、cancel 语义。
-- 默认 `CoreContractTest`：707 项通过，包含完整票据终态路径断言；被缩减的是重复随机/穷举与压力轮次，
-  不是取消、关闭、拒绝或清引用的独特回归。大语料另用显式 `:core:contractStress` 运行。
-
-## 剩余限制（明确记录）
-
-1. **部分保留**：STARTED/JOINED 终态票据仍 `owner=cache`，owner 链可保留整个共享 cache 及其缓存值。
-   要完全断开需要 Ticket↔Sub 回引用，属后续可选增强，本轮不做。
-2. `close()` / `computeNow` 不清 `flight.task`；自定义 executor 队列里的已终止 task 仍捕获
-   flight→cache，直到被执行或队列丢弃。ThreadPoolExecutor 由 `removeFromQueue` 处理。
-3. 自定义 Executor 抛非 `RejectedExecutionException` 的 `RuntimeException` 或 `Error` 时，飞行会被
-   完整回滚（与原拒绝路径同一逻辑），已加入的订阅者收到 `onFailed`，原异常从 `request` 抛出；不再
-   留下永不完成的死飞行（2026-11-05 修复）。
-4. `close()` 与已 drain 未 post 的投递之间仍有窄竞态：deliver 的 `closed` 判断覆盖 close 先于
-   deliver 获取锁的情形；若 close 发生在 deliver 通过判断之后、回调之前，回调仍可能执行（与 HEAD
-   相同的既有限制，未扩大）。
-5. 设备/ART 与真机未验证；以上为宿主 JVM 证据。
+1. `STARTED` / `JOINED` 终态票据仍持有 `owner`，若调用方长期不释放该 `Ticket` 对象本身，仍会间接保留共享缓存。
+2. 自定义非 `ThreadPoolExecutor` 执行器的待执行队列中，已取消的 `task` 仍持有 `flight → cache` 直至出队执行或被丢弃。
+3. 执行器抛出非 `RejectedExecutionException` 的异常时，飞行完整回滚并通知已加入订阅者后重抛原异常。
+4. `close()` 与已抽取未投递任务之间仍存在与初版相同的极窄竞态（若 `close()` 发生在 `deliver()` 通过 `closed` 检查之后、执行回调之前，该次回调仍可能触发）。
+5. 以上探针与 `TicketRetentionContractTest`、`FlightCacheContractTest`（以及手动压力入口 `:core:contractStress`）均运行于宿主 JVM，真机 ART 内存回收行为须在设备侧单独观测。

@@ -1,132 +1,84 @@
 # FlightCache：共享、有界、单飞的结果缓存
 
-`io.github.jichuo1.meguviz.drawable.cache.FlightCache`（`meguviz-drawable-core` 1.2.0，Central 上尚未发布）把“很贵、纯、可被多个所有者共享”的结果——
-例如背景 tile——的生产放到工作线程，并保证：绘制路径只读内存，同一个键同时只生产一次，没人要的结果不会被送到不该收的所有者，所有数量都有上限。
-Android 侧配套 `MainThreadPoster`（主线程投递）与 `BitmapWeigher`（按分配字节计重），在 `meguviz-drawable-android` 1.2.0。
-`1.1.0` 从未发布、已被 1.2.0 取代；`docs/abi/1.1.0` 只是历史候选快照。
+`io.github.jichuo1.meguviz.drawable.cache.FlightCache`（位于 `meguviz-drawable-core:1.2.0`）将昂贵、纯计算、可跨所有者共享的结果（如背景 tile）交由后台工作线程生产，同时确保：绘制路径只读内存、同键并发只生产一次、过期或取消的结果不送达无关所有者，且条目、权重与在途飞行数均有明确上限。Android 侧配套的 `MainThreadPoster`（主线程投递）与 `BitmapWeigher`（按分配字节计重）位于 `meguviz-drawable-android:1.2.0`。（注：`1.1.0` 从未发布且已被 `1.2.0` 取代，`docs/abi/1.1.0` 仅作历史快照保留。）
 
-## 契约
+## 核心契约
 
 | 能力 | 行为 |
-|---|---|
-| 查找不计算 | `peek(key)` 与 `request` 的命中路径只读内存、除返回的 `Ticket` 外不分配对象，绘制线程可以直接用；加入路径只分配登记到飞行上的订阅者，拒绝路径不分配 |
-| 同键单飞 | 并发请求同一个缺失键，生产者只运行一次，结果入缓存并送给所有仍然需要的订阅者；先到者的 producer 运行，所以相等的键必须代表相等的输入 |
-| 订阅者在所有者线程、带代际 | 回调经 `OwnerPoster` 在所有者线程执行，执行前再问 `Subscriber.isCurrent()`；`Ticket.cancel()` 返回后不会再有回调 |
-| 放弃的工作不积压 | 排队中的飞行失去全部订阅者后，轮到它时直接丢弃（`ThreadPoolExecutor` 会立即把任务移出队列），到达上限时它最先让位，同键新请求可复活它；已开始的飞行会跑完并缓存（`abandonRunning` 可让生产者在下次检查时退出） |
-| 有界 | 条目数、总权重、同时存在的飞行数都有上限；飞行超限时 `request` 返回 `REJECTED_CAPACITY`，不无限排队 |
-| 失败 | 生产者抛出（或返回 null）则所有等待者收到 `onFailed`，不缓存，下次请求重新生产 |
-| 不回收值 | 淘汰时不 `recycle`，被淘汰的值可能仍在屏幕上；用 `EvictionListener` 释放所有者确认空闲的资源 |
-| 精确同步导出 | `computeNow(key, producer)` 在调用线程生产并缓存，从不等待线程池（不会被排在后面的任务卡死）；已排队的同键飞行用这个值直接完成 |
-| 可观测 | `stats()`：命中、未命中、合并、生产、失败、淘汰、拒绝、放弃、取消、投递、代际丢弃；`version()` 每成功缓存一个新值加一（超重值与被并发抢占的值不算） |
-| 超重值 | 单个值权重超过 `maxWeight` 时仍交付给调用者与订阅者，但**不进缓存**、不通知淘汰、不计 `produced`、不加 `version()`；否则它会立刻被淘汰，监听者会在值上屏前收到一次虚假的回收通知 |
-| 重复发布 | 一个 RUNNING 飞行被 `computeNow` 抢先写入同键后，飞行完成时加入已缓存的那个引用：不 REPLACED、不二次加 `version()`、不给订阅者不同引用 |
+| --- | --- |
+| 查找零计算 | `peek(key)` 与 `request` 命中路径只读内存（命中路径除返回的 `Ticket` 外不分配对象），可在绘制线程直接调用；加入在途飞行时分配订阅者记录，拒收路径不分配 |
+| 同键单飞 | 并发请求同一缺失键时，先到者的 `Producer` 在锁外运行一次，结果入缓存并交付所有仍关注该键的订阅者；因此相等的键必须对应等价输入 |
+| owner 线程与代际校验 | 订阅者回调经 `OwnerPoster` 在所有者线程触发，并在回调前再次核对 `Subscriber.isCurrent()`；`Ticket.cancel()` 在所有者线程返回后保证不再触发回调 |
+| 放弃任务不积压 | 尚在排队的飞行失去全部订阅者后，轮到执行时直接丢弃（`ThreadPoolExecutor` 会立即移出队列），到达上限时最先让位，同键新请求可将其复活；已运行中的飞行允许完成并缓存（开启 `abandonRunning` 后可通过 `Cancellation` 提前退出） |
+| 显式有界 | 条目数（`maxEntries`）、总权重（`maxWeight`）与并发飞行数（`maxFlights`）均受限制；飞行超限时 `request` 返回 `REJECTED_CAPACITY`，不无限排队 |
+| 失败不缓存 | `Producer` 抛出异常或返回 `null` 时，所有等待者收到 `onFailed`，结果不入缓存，后续请求可重新生产 |
+| 不自动回收资源 | 淘汰条目时不自动调用 `recycle()`（被淘汰的 Bitmap 可能仍在屏幕上显示）；需要释放资源时请通过 `EvictionListener` 在确认空闲后处理 |
+| 同步精确导出 | `computeNow(key, producer)` 在调用线程直接生产并缓存，不排队等待线程池；尚在排队的同键飞行直接复用该结果完成 |
+| 可观测统计 | `stats()` 提供命中、未命中、合并、生产、失败、淘汰、拒绝、放弃、取消、投递与代际丢弃计数；`version()` 仅在有新值实际入缓存时递增 |
+| 超重值处理 | 单条结果权重大于 `maxWeight` 时仍正常交付给调用者与订阅者，但**不进入缓存**、不触发 `CAPACITY` 淘汰、不计 `produced` 也不递增 `version()`；需监听每次交付应通过 `Subscriber.onReady` |
+| 重复发布收敛 | 若运行中飞行被 `computeNow` 抢先写入同键，后完成的飞行沿用缓存中已有引用，不触发 `REPLACED` 淘汰、不重复加 `version()`，保证订阅者拿到同一引用 |
 
-生产者必须纯且线程安全，值发布后不可变。`close()` 清空缓存、让排队的任务永不运行、让运行中的生产者在 `Cancellation` 检查处看到取消。
+`Producer` 必须纯且线程安全，产出的值发布后须保持不可变。调用 `close()` 会清空缓存、阻止排队任务执行，并在运行中生产者的 `Cancellation` 上标记取消。
 
-## 对应 BIL 的 `HostBackgroundScene` / `HostBackgroundRasterCache`
+## 典型替换示例（共享背景缓存）
 
-BIL 当前（`hook/hostui/background`）：
-- `HostBackgroundScene` 用静态 `LruCache`（24 MiB）与 2 线程池；每个 Scene 自己的 `working` 标志和 `wanted/ready`，两个 Scene 对同一个 tile 同时冷未命中会各自渲染；
-  `synchronous` 绘制（软件 Canvas）在绘制线程里 `render`。
-- `HostBackgroundRasterCache` 有 pending 回调表，但没有取消、代际检查、数量上限，失败直接吞掉。
-
-用 `FlightCache` 替换两处共享层的做法：
-
-下面是接口示意，没有编译过：
+将原有的“全局静态 `LruCache` + 各自维护 `working` 标志 + 绘制线程兜底同步渲染”替换为 `FlightCache` 的写法示意如下：
 
 ```kotlin
-// 进程内一份；Key 同现有 Scene.Key（config、night、width、band）
-val tiles = FlightCache.builder<Key, Bitmap>(worker /* 现有 2 线程池 */, MainThreadPoster())
+// 进程内共享实例；Key 同原有配置键（config、night、width、band）
+val tiles = FlightCache.builder<Key, Bitmap>(worker, MainThreadPoster())
     .maxWeight(24L * 1024 * 1024).weigher(BitmapWeigher.INSTANCE)
     .maxEntries(64).maxFlights(8).build()
 
-// Scene.draw：只读缓存；缺的 tile 提交，不在绘制线程渲染
-val bitmap = tiles.peek(key)                      // 命中直接画
+// 绘制路径：只读缓存；未命中时提交异步请求，不在绘制线程渲染
+val bitmap = tiles.peek(key)
 if (bitmap == null && tickets[key] == null) {
     tickets[key] = tiles.request(key, FlightCache.Producer { k, _ -> render(k) }, sceneSubscriber(key)).also {
-        if (it.status() == FlightCache.Status.READY) ready[key] = it.value()   // 提交瞬间已命中
+        if (it.status() == FlightCache.Status.READY) ready[key] = it.value() // 命中时直接取值
     }
 }
 // 视口变化：取消不再需要的 tile
 for ((k, t) in tickets) if (k !in wanted) t.cancel()
-// subscriber.isCurrent() = key in wanted（现有“始终追随最新视口”语义）；onReady 里写 ready[key] 并 invalidate()
 ```
 
-- “软件 Canvas 同步渲染”的入口不要用 `peek` 兜底后在绘制线程 `render`：需要精确图像的导出路径用 `computeNow`，交互绘制的软件路径取就绪内容或降级底色并提交异步任务。
-- 每个 tile **成功进入缓存**都会让 `version()` 加一，可作为「缓存内容是否变化」的信号；被抢占的重复发布与超重值不会加一。若业务关心的是「有无新值交付」（含超重值），必须用 `Subscriber.onReady` 计数或回调，不能只轮询 `version()`，否则会漏刷新。
-- 一个 Scene 的 detach 只 `cancel` 自己的 `Ticket`，不影响其他 Scene 仍在等的飞行。
+- 交互绘制的软件路径若未命中，应使用占位底色并提交异步生产；需要精确导出图像时使用 `computeNow`。
+- 若业务需要感知包括超重值在内的每一次结果交付，应依赖 `Subscriber.onReady` 回调或计数，不可仅轮询 `version()`。
+- 单个界面的分离只 `cancel` 自己持有的 `Ticket`，不影响其他界面等待同一键的在途飞行。
 
-## 通用异步准备示例（无宿主身份）
+## 通用异步准备组合
 
-把上面的用法抽象成与宿主无关的最小组合。完整、可运行、被 host 合同钉住的版本是
-`core/src/test/java/io/github/jichuo1/meguviz/drawable/core/AsyncPreparationContractTest.java`
-（`gradlew check` 执行；纯测试作用域，不新增生产 API、线程或线程池，core 不依赖任何兄弟库）：
+将上述模型与 `BindingScope` 结合的最小无宿主示例已固化为 `core/src/test/java/io/github/jichuo1/meguviz/drawable/core/AsyncPreparationContractTest.java`：
 
 ```kotlin
-// 所有者线程。V 是缓存生产、按引用共享给所有订阅者的不可变 payload
-val stamp = scope.begin(key)                                   // 同 slot 最新者胜
+// 所有者线程：stamp 控制同 slot 最新请求有效
+val stamp = scope.begin(key)
 val ticket = cache.request(key, producer, object : Subscriber<V> {
-    override fun isCurrent() = current[key] === submission        // 代际检查：被取代的不安装
+    override fun isCurrent() = current[key] === submission
     override fun onReady(value: V) { scope.commit(stamp, value, installer, releaser) }
-    override fun onFailed(failure: Throwable) { failures.add(...) }   // 不吞
+    override fun onFailed(failure: Throwable) { failures.add(...) }
 })
 when (ticket.status()) {
-    READY -> scope.commit(stamp, ticket.value(), installer, releaser)  // 已缓存：没有回调，立即安装
-    REJECTED_CAPACITY, REJECTED_CLOSED -> { /* 记录并可观察；本 slot 退役，宿主重试 */ }
+    READY -> scope.commit(stamp, ticket.value(), installer, releaser) // 命中不回调，须同步安装
+    REJECTED_CAPACITY, REJECTED_CLOSED -> { /* 记录状态，由宿主择机重试 */ }
 }
 ```
 
-要点（合同逐条断言）：
+关键注意事项：
+- 同 key 替换提交时，先 `request` 注册新订阅（保留已有在途飞行）再 `cancel()` 旧票据。
+- `releaser` 仅在结果未能安装时被调用，此时 `FlightCache` 仍可能持有同一实例并供其他订阅者读取，因此 `releaser` 绝不可销毁共享值 `V`（缓存侧资源释放应统一放在 `EvictionListener`）。
+- `Ticket.cancel()` 与 `scope.close()` 只解除订阅关系，缓存生命周期由 `FlightCache.close()` 独立控制。
 
-- 每 slot 至多一个 current 提交；新提交先注册（同 key 在飞飞行是 JOINED，不会杀单飞）再取消旧
-  ticket；完成/失败/拒绝即移除该 slot 的引用；跨 key 规模由宿主显式限制。
-- READY 命中不会回调，必须按 `ticket.value()` 立即安装，否则静默不安装。
-- 拒绝（容量或缓存关闭）时 `begin` 已推进该 slot 的 stamp，旧提交同样不可能再安装：slot 整体退役、
-  错误可观测、由宿主在缓存有空间/重开后重试；不存在“恢复旧提交”。
-- V 由缓存共享引用交付且必须发布后不可变；每次安装由所有者创建自己的实例（例如自己的
-  Drawable），不把可变实例放进缓存共享。
-- releaser 只在结果未安装时收到 V（STALE/CLOSED 等），此时缓存仍持有该 V、其他订阅者仍可能
-  收到同一实例，因此 releaser 不得销毁 V；释放缓存侧资源用 `EvictionListener`。
-- `Ticket.cancel()` 与 `scope.close()` 只释放订阅，不动缓存；缓存的命运只由 `FlightCache.close()`
-  决定。合同覆盖：两次提交旧 ready 被丢弃不安装、同 key 并发只生产一次、缓存命中立即安装、
-  只在所有者线程安装（非所有者线程投递被 scope 拒绝）、失败/拒绝可观测、取消/关闭后共享值仍可
-  `peek` 到。
+## 执行器失败回滚与锁粒度加固
 
-## 执行器失败回滚（2026-11-05）
-
-`request` 对 `workers.execute(task)` 的失败统一回滚：`RejectedExecutionException` 仍返回 `REJECTED_CAPACITY`；其它 `RuntimeException` 与 `Error`（自定义执行器的 `IllegalStateException`、`NullPointerException`、`StackOverflowError` 等）在回滚后**原样重抛**，因为宿主无法把它当作容量拒绝。回滚动作与原拒绝路径逐字段一致（移除飞行、`state=DONE`、`producer/task=null`、`STARTED--`、`REJECTED++`、移除当前 sub、`drain` 并通知加入者）；若执行器已经同步跑完任务再抛，则不重复计入容量拒绝。若不回滚，该飞行会永久留在 `flights` 中，后续同键请求会 JOIN 它并同样永不回调。
-
-合同：`FlightCacheContractTest.executorFailureIsNotARefusal`（自定义执行器先 JOIN 一个订阅者再抛 `IllegalStateException`；断言异常传播、`stats().flights == 0`、`peek == null`、加入者收到失败、首订阅者无回调）。`:core:contractTest` 109 项、`check`、`contractStress`（447,189 项）与 `dump_abi.py` 基线一致均通过；未修复版本在同一用例上失败（`flights=1`）。
-
-## 命中路径锁粒度与投递/监听异常（2026-11-05 第三轮）
-
-- `request` 的命中与 `REJECTED_CLOSED` 路径现在在锁内只读 `hit.value`/状态，锁外构造 `Ticket`；命中路径锁内零分配，契约不变。`Flight.subscribers` 由默认容量 10 改为 1。
-- `deliverAll` 的 `owner.post` 与 `notifyEvicted` 的 `onEvicted` 由只捕 `RuntimeException` 改为捕 `Throwable`（仍计 `STALE`/`LISTENER_FAILURES`，不重抛），与 `request` 的执行器失败回滚一致；避免**投递动作本身**失败时中断后续订阅者或外泄到 `run`/`computeNow` 调用方。边界：订阅者自身回调（`Subscriber.isCurrent/onReady/onFailed`）抛出的异常不由缓存承接，仍按既有约定外泄。`Flight.subscribers` 预容量 1 是为单订阅者常见情形省去默认 10 槽数组；多订阅者合并时会多次扩容，属未测量的反向权衡。
-
-合同：`FlightCacheContractTest.posterErrorIsCountedAndDoesNotLeak`、`evictionListenerErrorIsCountedNotThrown`（并做了变异验证：改回 `RuntimeException` 会失败）。`:core:contractTest` 117 项、`check` 与 `dump_abi.py` 基线一致均通过。
-
-## 票据生命周期与长期持有
-
-当前源码候选在完成、取消、投递拒绝和关闭时及时断开订阅者与飞行的生产者引用；READY/拒绝票据没有可取消订阅，也不再保存 cache 引用。已经排入 owner 队列但在关闭前尚未开始交付的结果，关闭后会丢弃并计入 `droppedStale`。
-
-这不是完全脱离 cache：STARTED/JOINED 票据仍保留取消所需的 owner 链，调用方完成观察后应释放票据；自定义执行器仍持有的任务由该执行器管理。细节、确定性清引用合同和剩余竞态边界见 [票据引用释放](FLIGHT_RETENTION.md)。
+- **执行器失败回滚**：`request` 提交任务到 `workers.execute(task)` 时，若抛出 `RejectedExecutionException` 则回滚飞行并返回 `REJECTED_CAPACITY`；若自定义执行器抛出其他 `RuntimeException` 或 `Error`，在完成飞行回滚（移除映射、通知已合并订阅者 `onFailed`）后原样重抛，避免残留死飞行卡住后续同键请求（见 `FlightCacheContractTest.executorFailureIsNotARefusal`）。
+- **命中路径锁内零分配与投递容错**：`request` 命中与 `REJECTED_CLOSED` 路径在锁内仅读取状态，锁外构建 `Ticket`；`Flight.subscribers` 初始容量设为 `1`。投递时的 `owner.post` 与淘汰时的 `onEvicted` 捕获 `Throwable` 并计入失败统计而不阻塞后续订阅者（订阅者自身回调异常仍按既定契约向上传播）。
+- **票据引用清理**：完成、取消、投递失败与关闭时及时断开 `Sub` 与 `Flight.producer` 引用，详见 [票据引用释放](FLIGHT_RETENTION.md)。
 
 ## 获取方式
 
-1.2.0 尚未发布到 Central。在本仓库：
+`meguviz-drawable-core:1.2.0`、`meguviz-drawable-android:1.2.0` 与 `io.github.jichuo1.meguviz:meguviz-bom:1.2.0` 均已发布至 Maven Central，可直接在 Gradle 中接入。
 
-```text
-gradlew -Pmeguviz.profile=android :core:publishCandidatePublicationToStagingRepository :android:publishCandidatePublicationToStagingRepository
-```
+## 适用范围与验证说明
 
-产物写到 `build/staging-maven`（`io/github/jichuo1/meguviz/meguviz-drawable-core/1.2.0` 与 `-android/1.2.0`）。跨库联调由家族 BOM
-`meguviz-bom:1.2.0` 对齐（公开仓库 MeguvizBom，尚未发布到 Central）。BIL 的 release 构建要依赖发布到 Central 的版本，
-所以合并使用它的改动之前需要先发布 1.2.0（见 [RELEASE.md](RELEASE.md)）；发布由仓库所有者决定。
-
-## 验证
-
-- 宿主 JVM 契约（`FlightCacheContractTest`）：未命中到命中、并发合并、取消与复活、代际、失败、飞行上限与放弃让位、条目与权重淘汰、`computeNow`、`close`、执行器与投递拒绝、
-  `abandonRunning`、`ThreadPoolExecutor` 队列移除、8 线程 × 20 轮竞争只生产一次、4 线程随机负载下三个上限从不被突破。
-- 分配（2026-11-04，宿主 JVM，`benchmark/FlightCacheAllocationProbe.java` + `run-flightcache-probe.ps1`，`ThreadMXBean.getThreadAllocatedBytes`；协议与全部数据见 [PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md)）：命中路径关闭逃逸分析视图 104.000 → 32.000 B/次（默认视图前后均为 32.000，C2 已把非逃逸对象标量替换）；拒绝路径 104.000 → 32.000（默认）/ 136.000 → 64.000（关闭逃逸分析）；加入路径 104.000 → 56.000（两种视图一致，`Sub` 因登记到飞行上保留）。这是分配测量，不是帧耗时，也不是 Android/ART 收益。
-- API 34 模拟器（单台）：真实线程池、主 Looper 与 Bitmap tile——两个 Scene 共用一次生产、回调在主线程、取消与过期订阅者不被调用、字节上限按真实分配字节淘汰。
-- 未做：真机与硬件 Canvas 路径、BIL 实际替换后的帧耗时（属于 BIL 侧的测量，见其性能报告第 9 章）。
+- 宿主 JVM 契约测试 `FlightCacheContractTest`（含 8 线程 × 20 轮并发单飞、4 线程随机限额压测、执行器与投递失败回滚）及 `AsyncPreparationContractTest` 均已通过；单台 API 34 模拟器验证了真实线程池、主 Looper 与 `BitmapWeigher` 字节上限淘汰。
+- 宿主 JVM 分配探针（`benchmark/FlightCacheAllocationProbe.java`，协议见 [PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md)）测得关闭逃逸分析下命中路径 `104.000 → 32.000 B/次`、加入路径 `104.000 → 56.000 B/次`、拒绝路径 `136.000 → 64.000 B/次`。上述分配数字反映宿主 HotSpot JVM 局部开销，不构成真机帧耗或 ART 性能结论。
